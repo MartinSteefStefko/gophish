@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -251,4 +252,13 @@ func Setup(c *config.Config) error {
 		}
 	}
 	return nil
+}
+
+// GenerateRandomString generates a random string of the specified length
+func GenerateRandomString(length int) string {
+	b := make([]byte, length)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(b)[:length]
 }

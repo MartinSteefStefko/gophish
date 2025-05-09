@@ -137,6 +137,10 @@ func (as *AdminServer) registerRoutes() {
 	router.HandleFunc("/users", mid.Use(as.UserManagement, mid.RequirePermission(models.PermissionModifySystem), mid.RequireLogin))
 	router.HandleFunc("/webhooks", mid.Use(as.Webhooks, mid.RequirePermission(models.PermissionModifySystem), mid.RequireLogin))
 	router.HandleFunc("/impersonate", mid.Use(as.Impersonate, mid.RequirePermission(models.PermissionModifySystem), mid.RequireLogin))
+
+	// Register OAuth2 routes
+	as.RegisterOAuth2Routes(router)
+
 	// Create the API routes
 	api := api.NewServer(
 		api.WithWorker(as.worker),
