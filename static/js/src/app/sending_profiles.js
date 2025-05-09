@@ -41,6 +41,17 @@ function sendTestEmail() {
         })
 }
 
+// Handle interface type switching
+$("#interface_type").change(function() {
+    if ($(this).val() === "SMTP") {
+        $("#smtp_fields").show();
+        $("#graph_fields").hide();
+    } else {
+        $("#smtp_fields").hide();
+        $("#graph_fields").show();
+    }
+});
+
 // Save attempts to POST to /smtp/
 function save(idx) {
     var profile = {
@@ -54,11 +65,20 @@ function save(idx) {
     })
     profile.name = $("#name").val()
     profile.interface_type = $("#interface_type").val()
-    profile.from_address = $("#from").val()
-    profile.host = $("#host").val()
-    profile.username = $("#username").val()
-    profile.password = $("#password").val()
-    profile.ignore_cert_errors = $("#ignore_cert_errors").prop("checked")
+
+    if (profile.interface_type === "SMTP") {
+        profile.from_address = $("#from").val()
+        profile.host = $("#host").val()
+        profile.username = $("#username").val()
+        profile.password = $("#password").val()
+        profile.ignore_cert_errors = $("#ignore_cert_errors").prop("checked")
+    } else {
+        profile.from_address = $("#from_address").val()
+        profile.client_id = $("#client_id").val()
+        profile.client_secret = $("#client_secret").val()
+        profile.tenant_id = $("#tenant_id").val()
+    }
+
     if (idx != -1) {
         profile.id = profiles[idx].id
         api.SMTPId.put(profile)
