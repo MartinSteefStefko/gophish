@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -17,9 +18,6 @@ var graphAPIEndpoint = "https://graph.microsoft.com/v1.0"
 type OAuth2Config struct {
 	Id            int64     `json:"id" gorm:"column:id; primary_key:yes"`
 	UserId        int64     `json:"-" gorm:"column:user_id"`
-	ClientID      string    `json:"client_id"`
-	ClientSecret  string    `json:"client_secret,omitempty"`
-	TenantID      string    `json:"tenant_id"`
 	RedirectURI   string    `json:"redirect_uri"`
 	Scopes        []string  `json:"scopes" gorm:"-"`
 	ModifiedDate  time.Time `json:"modified_date"`
@@ -49,21 +47,31 @@ func (t OAuth2Token) TableName() string {
 
 // GetOAuth2Config returns the OAuth2 configuration for Microsoft authentication
 func GetOAuth2Config() (*oauth2.Config, error) {
-	var config OAuth2Config
-	err := db.Where("enabled = ?", true).First(&config).Error
-	if err != nil {
-		return nil, err
+	// Get configuration from environment variables
+	clientID := os.Getenv("OAUTH2_CLIENT_ID")
+	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
+	tenantID := os.Getenv("OAUTH2_TENANT_ID")
+	redirectURI := os.Getenv("OAUTH2_REDIRECT_URI")
+
+	// Check if required environment variables are set
+	if clientID == "" || clientSecret == "" || tenantID == "" {
+		return nil, fmt.Errorf("required OAuth2 environment variables not set (OAUTH2_CLIENT_ID, OAUTH2_CLIENT_SECRET, OAUTH2_TENANT_ID)")
+	}
+
+	// Use default redirect URI if not set
+	if redirectURI == "" {
+		redirectURI = "http://localhost:3333/oauth2/callback"
 	}
 
 	return &oauth2.Config{
-		ClientID:     config.ClientID,
-		ClientSecret: config.ClientSecret,
-		RedirectURL:  config.RedirectURI,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURI,
 		Scopes: []string{
 			"https://graph.microsoft.com/User.Read",
 			"offline_access",
 		},
-		Endpoint: microsoft.AzureADEndpoint(config.TenantID),
+		Endpoint: microsoft.AzureADEndpoint(tenantID),
 	}, nil
 }
 

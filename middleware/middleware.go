@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"net/http"

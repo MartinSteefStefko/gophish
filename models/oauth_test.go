@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -21,6 +22,12 @@ func (s *OAuth2Suite) SetUpTest(c *check.C) {
 	s.server = setupMockOAuth2Server()
 	// Override the Microsoft Graph API endpoint for testing
 	graphAPIEndpoint = s.server.URL
+
+	// Set up test environment variables
+	os.Setenv("OAUTH2_CLIENT_ID", "test_client_id")
+	os.Setenv("OAUTH2_CLIENT_SECRET", "test_client_secret")
+	os.Setenv("OAUTH2_TENANT_ID", "test_tenant_id")
+	os.Setenv("OAUTH2_REDIRECT_URI", "http://localhost:3333/oauth2/callback")
 }
 
 func (s *OAuth2Suite) TearDownTest(c *check.C) {
@@ -28,6 +35,12 @@ func (s *OAuth2Suite) TearDownTest(c *check.C) {
 	s.ModelsSuite.TearDownTest(c)
 	// Reset the Microsoft Graph API endpoint
 	graphAPIEndpoint = "https://graph.microsoft.com/v1.0"
+
+	// Clean up environment variables
+	os.Unsetenv("OAUTH2_CLIENT_ID")
+	os.Unsetenv("OAUTH2_CLIENT_SECRET")
+	os.Unsetenv("OAUTH2_TENANT_ID")
+	os.Unsetenv("OAUTH2_REDIRECT_URI")
 }
 
 func setupMockOAuth2Server() *httptest.Server {
@@ -77,29 +90,16 @@ func setupMockOAuth2Server() *httptest.Server {
 }
 
 func (s *OAuth2Suite) TestOAuth2Config(c *check.C) {
-	config := &OAuth2Config{
-		UserId:      1,
-		ClientID:     "test_client_id",
-		ClientSecret: "test_client_secret",
-		TenantID:    "test_tenant_id",
-		RedirectURI: "http://localhost:3333/oauth2/callback",
-		Enabled:     true,
-		ModifiedDate: time.Now().UTC(),
-	}
-	err := db.Save(config).Error
-	c.Assert(err, check.IsNil)
-
+	// Test with environment variables set
 	result, err := GetOAuth2Config()
 	c.Assert(err, check.IsNil)
-	c.Assert(result.ClientID, check.Equals, config.ClientID)
-	c.Assert(result.ClientSecret, check.Equals, config.ClientSecret)
+	c.Assert(result.ClientID, check.Equals, "test_client_id")
+	c.Assert(result.ClientSecret, check.Equals, "test_client_secret")
+	c.Assert(result.RedirectURL, check.Equals, "http://localhost:3333/oauth2/callback")
 	c.Assert(result.Scopes, check.DeepEquals, []string{"https://graph.microsoft.com/User.Read", "offline_access"})
 
-	// Test not enabled case
-	config.Enabled = false
-	err = db.Save(config).Error
-	c.Assert(err, check.IsNil)
-
+	// Test with missing environment variables
+	os.Unsetenv("OAUTH2_CLIENT_ID")
 	_, err = GetOAuth2Config()
 	c.Assert(err, check.NotNil)
 }

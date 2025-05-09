@@ -2,12 +2,12 @@ package controllers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/models"
+	"github.com/gophish/gophish/logger"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 )
@@ -20,20 +20,28 @@ func (as *AdminServer) OAuth2Login(w http.ResponseWriter, r *http.Request) {
 		session.Values["next"] = next
 	}
 
+	logger.Info("Getting OAuth2 config...")
 	config, err := models.GetOAuth2Config()
 	if err != nil {
-		log.Error(err)
+		logger.Error("OAuth2 config error:", err)
 		Flash(w, r, "danger", "OAuth2 configuration error")
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 		return
 	}
 
 	// Generate random state
-	state := models.GenerateSecureKey(32)
+	state := models.GenerateRandomString(32)
 	session.Values["oauth2_state"] = state
-	session.Save(r, w)
+	err = session.Save(r, w)
+	if err != nil {
+		logger.Error("Failed to save session:", err)
+		Flash(w, r, "danger", "Session error")
+		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+		return
+	}
 
 	url := config.AuthCodeURL(state)
+	logger.Info("Redirecting to OAuth2 URL:", url)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
@@ -56,7 +64,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 
 	config, err := models.GetOAuth2Config()
 	if err != nil {
-		log.Error(err)
+		logger.Error(err)
 		Flash(w, r, "danger", "OAuth2 configuration error")
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 		return
@@ -64,7 +72,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 
 	token, err := config.Exchange(r.Context(), code)
 	if err != nil {
-		log.Error(err)
+		logger.Error(err)
 		Flash(w, r, "danger", "Failed to exchange authorization code")
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 		return
@@ -74,7 +82,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	client := config.Client(r.Context(), token)
 	resp, err := client.Get("https://graph.microsoft.com/v1.0/me")
 	if err != nil {
-		log.Error(err)
+		logger.Error(err)
 		Flash(w, r, "danger", "Failed to get user profile")
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 		return
@@ -83,7 +91,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 
 	var profile map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
-		log.Error(err)
+		logger.Error(err)
 		Flash(w, r, "danger", "Failed to parse user profile")
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 		return
@@ -106,7 +114,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		}
 		err = models.PutUser(&user)
 		if err != nil {
-			log.Error(err)
+			logger.Error(err)
 			Flash(w, r, "danger", "Failed to create user")
 			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 			return
@@ -116,7 +124,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	// Save OAuth2 token
 	err = models.SaveOAuth2Token(user.Id, token)
 	if err != nil {
-		log.Error(err)
+		logger.Error(err)
 		Flash(w, r, "danger", "Failed to save OAuth token")
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 		return
@@ -126,7 +134,7 @@ func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	user.LastLogin = time.Now().UTC()
 	err = models.PutUser(&user)
 	if err != nil {
-		log.Error(err)
+		logger.Error(err)
 	}
 
 	// Set session
