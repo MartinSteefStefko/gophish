@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/csrf"
+	"github.com/gorilla/securecookie"
+	"github.com/gorilla/sessions"
 )
 
 // CSRFExemptPrefixes are a list of routes that are exempt from CSRF protection
@@ -38,6 +41,21 @@ func Use(handler http.HandlerFunc, mid ...func(http.Handler) http.HandlerFunc) h
 	}
 	return handler
 }
+
+// init registers the necessary models to be saved in the session later
+func init() {
+	gob.Register(&models.User{})
+	gob.Register(&models.Flash{})
+	gob.Register(&models.OAuth2Token{})
+	Store.Options.HttpOnly = true
+	// This sets the maxAge to 5 days for all cookies
+	Store.MaxAge(86400 * 5)
+}
+
+// Store contains the session information for the request
+var Store = sessions.NewCookieStore(
+	[]byte(securecookie.GenerateRandomKey(64)), //Signing key
+	[]byte(securecookie.GenerateRandomKey(32)))
 
 // GetContext wraps each request in a function which fills in the context for a given request.
 // This includes setting the User and Session keys and values as necessary for use in later functions.
@@ -123,6 +141,23 @@ func RequireLogin(handler http.Handler) http.HandlerFunc {
 				http.Redirect(w, r, fmt.Sprintf("/reset_password?%s", q.Encode()), http.StatusTemporaryRedirect)
 				return
 			}
+
+			// Check if user has OAuth2 token and it's valid
+			token, err := models.GetUserOAuth2Token(currentUser.Id)
+			if err == nil && !token.ExpiresAt.IsZero() && time.Now().Before(token.ExpiresAt) {
+				handler.ServeHTTP(w, r)
+				return
+			}
+
+			// If OAuth2 is enabled and token is invalid, redirect to OAuth2 login
+			config, err := models.GetOAuth2Config()
+			if err == nil && config != nil {
+				q := r.URL.Query()
+				q.Set("next", r.URL.Path)
+				http.Redirect(w, r, fmt.Sprintf("/oauth2/login?%s", q.Encode()), http.StatusTemporaryRedirect)
+				return
+			}
+
 			handler.ServeHTTP(w, r)
 			return
 		}
@@ -190,8 +225,7 @@ func ApplySecurityHeaders(next http.Handler) http.HandlerFunc {
 // JSONError returns an error in JSON format with the given
 // status code and message
 func JSONError(w http.ResponseWriter, c int, m string) {
-	cj, _ := json.MarshalIndent(models.Response{Success: false, Message: m}, "", "  ")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(c)
-	fmt.Fprintf(w, "%s", cj)
+	json.NewEncoder(w).Encode(models.Response{Success: false, Message: m})
 }

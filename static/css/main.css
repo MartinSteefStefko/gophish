@@ -742,3 +742,20 @@ table.dataTable {
 #password-strength-container {
     height: 40px;
 }
+
+.btn-microsoft {
+    color: #fff;
+    background-color: #2f2f2f;
+    border-color: #2f2f2f;
+}
+
+.btn-microsoft:hover,
+.btn-microsoft:focus {
+    color: #fff;
+    background-color: #1f1f1f;
+    border-color: #1f1f1f;
+}
+
+.btn-microsoft i {
+    margin-right: 10px;
+}
