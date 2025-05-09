@@ -49,21 +49,40 @@
                         <label class="control-label" for="name">Name:</label>
                         <input type="text" class="form-control" placeholder="Profile name" id="name" autofocus />
                         <label class="control-label" for="interface_type">Interface Type:</label>
-                        <input type="text" class="form-control" value="SMTP" id="interface_type" disabled />
-                        <label class="control-label" for="from">SMTP From: <i class="fa fa-question-circle"
-                                data-toggle="tooltip" data-placement="right" title="Set this to an email address from your sending domain to bypass SPF-checks. You can set the Envelope Sender in Email Templates. The Envelope Sender is shown to the user."></i></label>
-                        <input type="text" class="form-control" placeholder="test@example.com" id="from"
-                            required />
-                        <label class="control-label" for="host">Host:</label>
-                        <input type="text" class="form-control" placeholder="smtp.example.com:25" id="host" required />
-                        <label class="control-label" for="username">Username:</label>
-                        <input type="text" class="form-control" placeholder="Username" id="username" />
-                        <label class="control-label" for="password">Password:</label>
-                        <input type="password" class="form-control" placeholder="Password" id="password" />
-                        <div class="checkbox checkbox-primary">
-                            <input id="ignore_cert_errors" type="checkbox" checked>
-                            <label for="ignore_cert_errors">Ignore Certificate Errors <i class="fa fa-question-circle"
-                                    data-toggle="tooltip" data-placement="right" title="Ignore common certificate errors such as self-signed certs (exposes you to MiTM attacks - use carefully!)"></i></label>
+                        <select class="form-control" id="interface_type">
+                            <option value="SMTP">SMTP</option>
+                            <option value="GRAPH">Microsoft Graph API</option>
+                        </select>
+                        
+                        <!-- SMTP Fields -->
+                        <div id="smtp_fields">
+                            <label class="control-label" for="from">SMTP From:</label>
+                            <input type="text" class="form-control" placeholder="test@example.com" id="from" />
+                            <label class="control-label" for="host">Host:</label>
+                            <input type="text" class="form-control" placeholder="smtp.example.com:25" id="host" />
+                            <label class="control-label" for="username">Username:</label>
+                            <input type="text" class="form-control" placeholder="Username" id="username" />
+                            <label class="control-label" for="password">Password:</label>
+                            <input type="password" class="form-control" placeholder="Password" id="password" />
+                            <br />
+                            <div class="checkbox checkbox-primary">
+                                <input type="checkbox" id="ignore_cert_errors" />
+                                <label for="ignore_cert_errors">Ignore Certificate Errors <i class="fa fa-question-circle"
+                                    data-toggle="tooltip" data-placement="right"
+                                    title="Ignore certificate errors when connecting to the SMTP server (not recommended)"></i></label>
+                            </div>
+                        </div>
+
+                        <!-- Graph API Fields -->
+                        <div id="graph_fields" style="display:none;">
+                            <label class="control-label" for="from_address">From Address:</label>
+                            <input type="text" class="form-control" placeholder="sender@yourdomain.com" id="from_address" />
+                            <label class="control-label" for="client_id">Client ID:</label>
+                            <input type="text" class="form-control" placeholder="Azure AD Application Client ID" id="client_id" />
+                            <label class="control-label" for="client_secret">Client Secret:</label>
+                            <input type="password" class="form-control" placeholder="Azure AD Application Client Secret" id="client_secret" />
+                            <label class="control-label" for="tenant_id">Tenant ID:</label>
+                            <input type="text" class="form-control" placeholder="Azure AD Tenant ID" id="tenant_id" />
                         </div>
                     </div>
                     <fieldset class="form-group">
