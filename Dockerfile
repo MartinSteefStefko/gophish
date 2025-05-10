@@ -16,6 +16,10 @@ WORKDIR /go/src/github.com/gophish/gophish
 COPY . .
 RUN go get -v && go build -v
 
+# Build goose binary
+RUN go install github.com/pressly/goose/v3/cmd/goose@latest
+RUN cp /go/bin/goose /go/src/github.com/gophish/gophish/
+
 
 # Runtime container
 FROM debian:stable-slim
@@ -23,8 +27,13 @@ FROM debian:stable-slim
 RUN useradd -m -d /opt/gophish -s /bin/bash app
 
 RUN apt-get update && \
-	apt-get install --no-install-recommends -y jq libcap2-bin ca-certificates && \
-	apt-get clean && \
+	apt-get install --no-install-recommends -y \
+	jq \
+	libcap2-bin \
+	ca-certificates \
+	curl \
+	sqlite3 \
+	&& apt-get clean && \
 	rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /opt/gophish
@@ -33,6 +42,10 @@ COPY --from=build-js /build/static/js/dist/ ./static/js/dist/
 COPY --from=build-js /build/static/css/dist/ ./static/css/dist/
 COPY --from=build-golang /go/src/github.com/gophish/gophish/config.json ./
 RUN chown app. config.json
+
+# Copy goose binary to a PATH location
+COPY --from=build-golang /go/src/github.com/gophish/gophish/goose /usr/local/bin/
+RUN chmod +x /usr/local/bin/goose
 
 RUN setcap 'cap_net_bind_service=+ep' /opt/gophish/gophish
 
