@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -8,11 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
+	"golang.org/x/oauth2"
 )
 
 // CSRFExemptPrefixes are a list of routes that are exempt from CSRF protection
@@ -144,14 +147,15 @@ func RequireLogin(handler http.Handler) http.HandlerFunc {
 			}
 
 			// Check if user has OAuth2 token and it's valid
-			token, err := models.GetUserOAuth2Token(currentUser.Id)
-			if err == nil && !token.ExpiresAt.IsZero() && time.Now().Before(token.ExpiresAt) {
+			ctx := context.Background()
+			token, err := models.GetUserOAuth2Token(ctx, uuid.Nil, currentUser.Id) // TODO: Get correct app registration ID
+			if err == nil && !token.Expiry.IsZero() && time.Now().Before(token.Expiry) {
 				handler.ServeHTTP(w, r)
 				return
 			}
 
 			// If OAuth2 is enabled and token is invalid, redirect to OAuth2 login
-			config, err := models.GetOAuth2Config()
+			config, err := models.GetOAuth2Config(uuid.Nil) // TODO: Get correct app registration ID
 			if err == nil && config != nil {
 				q := r.URL.Query()
 				q.Set("next", r.URL.Path)
@@ -229,4 +233,37 @@ func JSONError(w http.ResponseWriter, c int, m string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(c)
 	json.NewEncoder(w).Encode(models.Response{Success: false, Message: m})
+}
+
+// GetToken retrieves a valid OAuth2 token
+func GetToken(userId int64, appRegID uuid.UUID) (*oauth2.Token, error) {
+	ctx := context.Background()
+	token, err := models.GetUserOAuth2Token(ctx, appRegID, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	if token.Expiry.Before(time.Now()) {
+		config, err := models.GetOAuth2Config(appRegID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Use the refresh token to get a new access token
+		tokenSource := config.TokenSource(ctx, token)
+		newToken, err := tokenSource.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		// Save the new token
+		err = models.SaveOAuth2Token(ctx, appRegID, userId, newToken)
+		if err != nil {
+			return nil, err
+		}
+
+		return newToken, nil
+	}
+
+	return token, nil
 }

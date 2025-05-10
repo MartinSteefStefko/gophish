@@ -46,7 +46,7 @@ func (s *CustomTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistration, func()) {
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 
 	// Create a tenant
 	tenant := &Tenant{
@@ -72,7 +72,6 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 	appReg := &AppRegistration{
 		ID:               uuid.New(),
 		ProviderTenantID: providerTenant.ID,
-		UseCase:          "email",
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
 	}
@@ -301,5 +300,120 @@ func TestMultiTenantGraphAPIIntegration(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, newToken.AccessToken, savedToken.AccessToken)
 		assert.Equal(t, newToken.RefreshToken, savedToken.RefreshToken)
+	})
+}
+
+func TestGraphMultiTenant(t *testing.T) {
+	// Setup
+	cleanup := SetupTest(t)
+	defer cleanup()
+
+	// Create test tenant
+	tenant := &Tenant{
+		ID:   uuid.New(),
+		Name: "Test Tenant",
+	}
+	err := tenant.Create()
+	assert.NoError(t, err)
+
+	// Create test provider tenant
+	providerTenant := &ProviderTenant{
+		ID:               uuid.New(),
+		TenantID:         tenant.ID,
+		ProviderType:     ProviderTypeAzure,
+		ProviderTenantID: "test-tenant-id",
+		DisplayName:      "Test Provider",
+	}
+	err = providerTenant.Create()
+	assert.NoError(t, err)
+
+	t.Run("CreateAppRegistration", func(t *testing.T) {
+		appReg := &AppRegistration{
+			ID:               uuid.New(),
+			ProviderTenantID: providerTenant.ID,
+			ClientID:         "test-client-id",
+			RedirectURI:      "http://localhost/callback",
+		}
+		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+		err := appReg.Create()
+		assert.NoError(t, err)
+
+		// Verify app registration was created
+		found, err := GetAppRegistration(appReg.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, appReg.ID, found.ID)
+		assert.Equal(t, appReg.ProviderTenantID, found.ProviderTenantID)
+		assert.Equal(t, appReg.ClientID, found.ClientID)
+		assert.Equal(t, appReg.GetScopes(), found.GetScopes())
+
+		// Clean up
+		err = appReg.Delete()
+		assert.NoError(t, err)
+	})
+
+	t.Run("CrossTenantIsolation", func(t *testing.T) {
+		// Create another tenant
+		otherTenant := &Tenant{
+			ID:   uuid.New(),
+			Name: "Other Tenant",
+		}
+		err := otherTenant.Create()
+		assert.NoError(t, err)
+
+		// Create another provider tenant
+		otherProviderTenant := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         otherTenant.ID,
+			ProviderType:     ProviderTypeAzure,
+			ProviderTenantID: "other-tenant-id",
+			DisplayName:      "Other Provider",
+		}
+		err = otherProviderTenant.Create()
+		assert.NoError(t, err)
+
+		// Create app registrations for both tenants
+		appReg1 := &AppRegistration{
+			ID:               uuid.New(),
+			ProviderTenantID: providerTenant.ID,
+			ClientID:         "test-client-id-1",
+			RedirectURI:      "http://localhost/callback",
+		}
+		appReg1.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+		err = appReg1.Create()
+		assert.NoError(t, err)
+
+		appReg2 := &AppRegistration{
+			ID:               uuid.New(),
+			ProviderTenantID: otherProviderTenant.ID,
+			ClientID:         "test-client-id-2",
+			RedirectURI:      "http://localhost/callback",
+		}
+		appReg2.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+		err = appReg2.Create()
+		assert.NoError(t, err)
+
+		// Verify app registrations are isolated
+		appRegs1, err := GetAppRegistrationsByProviderTenant(providerTenant.ID)
+		assert.NoError(t, err)
+		assert.Len(t, appRegs1, 1)
+		assert.Equal(t, appReg1.ID, appRegs1[0].ID)
+
+		appRegs2, err := GetAppRegistrationsByProviderTenant(otherProviderTenant.ID)
+		assert.NoError(t, err)
+		assert.Len(t, appRegs2, 1)
+		assert.Equal(t, appReg2.ID, appRegs2[0].ID)
+
+		// Clean up
+		err = appReg1.Delete()
+		assert.NoError(t, err)
+		err = appReg2.Delete()
+		assert.NoError(t, err)
+		err = otherProviderTenant.Delete()
+		assert.NoError(t, err)
+		err = otherTenant.Delete()
+		assert.NoError(t, err)
 	})
 } 

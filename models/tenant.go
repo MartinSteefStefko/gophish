@@ -90,7 +90,6 @@ func GetTenants() ([]*Tenant, error) {
 type AppRegistration struct {
     ID                 uuid.UUID `gorm:"type:uuid;primary_key"`
     ProviderTenantID   uuid.UUID `gorm:"type:uuid;index"`
-    UseCase            string    // 'oauth2', 'email', etc.
     ClientID           string
     ClientSecretHash   []byte    // Hashed for verification
     ClientSecretEncrypted []byte // Encrypted for use
@@ -156,9 +155,6 @@ func (ar *AppRegistration) Validate() error {
     }
     if ar.ProviderTenantID == uuid.Nil {
         return errors.New("provider tenant ID cannot be empty")
-    }
-    if ar.UseCase == "" {
-        return errors.New("use case cannot be empty")
     }
     if ar.ClientID == "" {
         return errors.New("client ID cannot be empty")

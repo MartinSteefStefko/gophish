@@ -9,7 +9,7 @@ import (
 
 func TestFeatureManagement(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create test tenant and provider tenant
@@ -34,10 +34,19 @@ func TestFeatureManagement(t *testing.T) {
 	appReg := &AppRegistration{
 		ID:               uuid.New(),
 		ProviderTenantID: providerTenant.ID,
-		UseCase:          "email",
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
 	}
+	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+	clientSecret := "test-secret"
+	secretHash := HashSecret(clientSecret)
+	secretEnc, err := Encrypt([]byte(clientSecret))
+	assert.NoError(t, err)
+
+	appReg.ClientSecretHash = secretHash
+	appReg.ClientSecretEncrypted = secretEnc
+
 	err = appReg.Create()
 	assert.NoError(t, err)
 
@@ -153,7 +162,6 @@ func TestFeatureManagement(t *testing.T) {
 		otherAppReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: otherProviderTenant.ID,
-			UseCase:          "email",
 			ClientID:         "other-client-id",
 			RedirectURI:      "http://localhost/callback",
 		}
@@ -228,4 +236,143 @@ func TestFeatureManagement(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "feature not found")
 	})
+}
+
+func TestFeature(t *testing.T) {
+	// Setup
+	cleanup := SetupTest(t)
+	defer cleanup()
+
+	// Create test tenant
+	tenant := &Tenant{
+		ID:   uuid.New(),
+		Name: "Test Tenant",
+	}
+	err := tenant.Create()
+	assert.NoError(t, err)
+
+	// Create test provider tenant
+	providerTenant := &ProviderTenant{
+		ID:               uuid.New(),
+		TenantID:         tenant.ID,
+		ProviderType:     ProviderTypeAzure,
+		ProviderTenantID: "test-tenant-id",
+		DisplayName:      "Test Provider",
+	}
+	err = providerTenant.Create()
+	assert.NoError(t, err)
+
+	// Create test app registration
+	appReg := &AppRegistration{
+		ID:               uuid.New(),
+		ProviderTenantID: providerTenant.ID,
+		ClientID:         "test-client-id",
+		RedirectURI:      "http://localhost/callback",
+	}
+	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+	clientSecret := "test-secret"
+	secretHash := HashSecret(clientSecret)
+	secretEnc, err := Encrypt([]byte(clientSecret))
+	assert.NoError(t, err)
+
+	appReg.ClientSecretHash = secretHash
+	appReg.ClientSecretEncrypted = secretEnc
+
+	err = appReg.Create()
+	assert.NoError(t, err)
+
+	t.Run("CreateFeature", func(t *testing.T) {
+		feature := &Feature{
+			ID:               uuid.New(),
+			AppRegistrationID: appReg.ID,
+			FeatureType:      FeatureTypeOAuth2,
+			Enabled:          true,
+			Config: map[string]interface{}{
+				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
+			},
+		}
+
+		err := feature.Create()
+		assert.NoError(t, err)
+		assert.NotEmpty(t, feature.CreatedAt)
+		assert.NotEmpty(t, feature.UpdatedAt)
+
+		// Verify feature was created
+		var found Feature
+		err = db.First(&found, "id = ?", feature.ID).Error
+		assert.NoError(t, err)
+		assert.Equal(t, feature.ID, found.ID)
+		assert.Equal(t, feature.AppRegistrationID, found.AppRegistrationID)
+		assert.Equal(t, feature.FeatureType, found.FeatureType)
+		assert.Equal(t, feature.Enabled, found.Enabled)
+
+		// Clean up
+		err = db.Delete(&feature).Error
+		assert.NoError(t, err)
+	})
+
+	t.Run("UpdateFeature", func(t *testing.T) {
+		feature := &Feature{
+			ID:               uuid.New(),
+			AppRegistrationID: appReg.ID,
+			FeatureType:      FeatureTypeOAuth2,
+			Enabled:          true,
+			Config: map[string]interface{}{
+				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
+			},
+		}
+
+		err := feature.Create()
+		assert.NoError(t, err)
+
+		// Update feature
+		feature.Enabled = false
+		feature.Config["scopes"] = []string{
+			"https://graph.microsoft.com/Mail.Send",
+			"https://graph.microsoft.com/Mail.Read",
+		}
+
+		err = feature.Update()
+		assert.NoError(t, err)
+
+		// Verify updates
+		var found Feature
+		err = db.First(&found, "id = ?", feature.ID).Error
+		assert.NoError(t, err)
+		assert.Equal(t, feature.Enabled, found.Enabled)
+		assert.Equal(t, feature.Config, found.Config)
+
+		// Clean up
+		err = db.Delete(&feature).Error
+		assert.NoError(t, err)
+	})
+
+	t.Run("DeleteFeature", func(t *testing.T) {
+		feature := &Feature{
+			ID:               uuid.New(),
+			AppRegistrationID: appReg.ID,
+			FeatureType:      FeatureTypeOAuth2,
+			Enabled:          true,
+			Config: map[string]interface{}{
+				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
+			},
+		}
+
+		err := feature.Create()
+		assert.NoError(t, err)
+
+		// Delete feature
+		err = feature.Delete()
+		assert.NoError(t, err)
+
+		// Verify feature was deleted
+		_, err = GetFeature(feature.ID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "feature not found")
+	})
+
+	// Clean up app registration
+	err = appReg.Delete()
+	assert.NoError(t, err)
 } 

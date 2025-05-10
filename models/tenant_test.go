@@ -7,9 +7,103 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestTenant(t *testing.T) {
+	// Setup
+	cleanup := SetupTest(t)
+	defer cleanup()
+
+	t.Run("CreateTenant", func(t *testing.T) {
+		tenant := &Tenant{
+			ID:   uuid.New(),
+			Name: "Test Tenant",
+		}
+		err := tenant.Create()
+		assert.NoError(t, err)
+
+		// Verify tenant was created
+		found, err := GetTenant(tenant.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, tenant.ID, found.ID)
+		assert.Equal(t, tenant.Name, found.Name)
+
+		// Clean up
+		err = tenant.Delete()
+		assert.NoError(t, err)
+	})
+
+	t.Run("UpdateTenant", func(t *testing.T) {
+		tenant := &Tenant{
+			ID:   uuid.New(),
+			Name: "Test Tenant",
+		}
+		err := tenant.Create()
+		assert.NoError(t, err)
+
+		// Update tenant
+		tenant.Name = "Updated Tenant"
+		err = tenant.Update()
+		assert.NoError(t, err)
+
+		// Verify update
+		found, err := GetTenant(tenant.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, "Updated Tenant", found.Name)
+
+		// Clean up
+		err = tenant.Delete()
+		assert.NoError(t, err)
+	})
+
+	t.Run("DeleteTenant", func(t *testing.T) {
+		tenant := &Tenant{
+			ID:   uuid.New(),
+			Name: "Test Tenant",
+		}
+		err := tenant.Create()
+		assert.NoError(t, err)
+
+		// Delete tenant
+		err = tenant.Delete()
+		assert.NoError(t, err)
+
+		// Verify deletion
+		_, err = GetTenant(tenant.ID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "tenant not found")
+	})
+
+	t.Run("GetAllTenants", func(t *testing.T) {
+		// Create multiple tenants
+		tenant1 := &Tenant{
+			ID:   uuid.New(),
+			Name: "Test Tenant 1",
+		}
+		err := tenant1.Create()
+		assert.NoError(t, err)
+
+		tenant2 := &Tenant{
+			ID:   uuid.New(),
+			Name: "Test Tenant 2",
+		}
+		err = tenant2.Create()
+		assert.NoError(t, err)
+
+		// Get all tenants
+		tenants, err := GetTenants()
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(tenants), 2)
+
+		// Clean up
+		err = tenant1.Delete()
+		assert.NoError(t, err)
+		err = tenant2.Delete()
+		assert.NoError(t, err)
+	})
+}
+
 func TestCreateTenant(t *testing.T) {
 	// Setup
-	cleanupTenant := setupTest(t)
+	cleanupTenant := SetupTest(t)
 	defer cleanupTenant()
 
 	// Test cases
@@ -64,7 +158,7 @@ func TestCreateTenant(t *testing.T) {
 
 func TestGetTenant(t *testing.T) {
 	// Setup
-	cleanupTenant := setupTest(t)
+	cleanupTenant := SetupTest(t)
 	defer cleanupTenant()
 
 	// Create a test tenant
@@ -122,7 +216,7 @@ func TestGetTenant(t *testing.T) {
 
 func TestListTenants(t *testing.T) {
 	// Setup
-	cleanupTenant := setupTest(t)
+	cleanupTenant := SetupTest(t)
 	defer cleanupTenant()
 
 	// Create test tenants
@@ -155,7 +249,7 @@ func TestListTenants(t *testing.T) {
 
 func TestUpdateTenant(t *testing.T) {
 	// Setup
-	cleanupTenant := setupTest(t)
+	cleanupTenant := SetupTest(t)
 	defer cleanupTenant()
 
 	// Create a test tenant
@@ -211,7 +305,7 @@ func TestUpdateTenant(t *testing.T) {
 
 func TestDeleteTenant(t *testing.T) {
 	// Setup
-	cleanupTenant := setupTest(t)
+	cleanupTenant := SetupTest(t)
 	defer cleanupTenant()
 
 	// Create a test tenant

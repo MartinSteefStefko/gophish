@@ -13,14 +13,17 @@ import (
 type FeatureType string
 
 const (
-	FeatureTypeOAuth2 FeatureType = "oauth2"
-	FeatureTypeEmail  FeatureType = "email"
+	FeatureTypeOAuth2    FeatureType = "oauth2"
+	FeatureTypePhishing  FeatureType = "phishing"
+	FeatureTypeEmail     FeatureType = "email"
+	FeatureTypeDMARC     FeatureType = "dmarc"
+	FeatureTypeReporting FeatureType = "reporting"
 )
 
 // IsValid checks if the feature type is valid
 func (ft FeatureType) IsValid() bool {
 	switch ft {
-	case FeatureTypeOAuth2, FeatureTypeEmail:
+	case FeatureTypeOAuth2, FeatureTypePhishing, FeatureTypeEmail, FeatureTypeDMARC, FeatureTypeReporting:
 		return true
 	}
 	return false
@@ -78,13 +81,13 @@ func (f *Feature) AfterFind() error {
 // Validate checks if the feature has valid data
 func (f *Feature) Validate() error {
 	if f.ID == uuid.Nil {
-		return errors.New("feature ID cannot be empty")
+		return fmt.Errorf("feature ID cannot be empty")
 	}
 	if f.AppRegistrationID == uuid.Nil {
-		return errors.New("app registration ID cannot be empty")
+		return fmt.Errorf("app registration ID cannot be empty")
 	}
 	if !f.FeatureType.IsValid() {
-		return errors.New("invalid feature type")
+		return fmt.Errorf("invalid feature type: %s", f.FeatureType)
 	}
 	return nil
 }

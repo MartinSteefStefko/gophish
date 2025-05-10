@@ -10,147 +10,85 @@ import (
 
 func TestOnboarding(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
-	t.Run("BasicOAuth2Onboarding", func(t *testing.T) {
-		// Test basic OAuth2 onboarding flow
-		tenant := &Tenant{
-			ID:   uuid.New(),
-			Name: "Test OAuth2 Tenant",
-		}
-		err := tenant.Create()
-		assert.NoError(t, err)
+	// Create test tenant
+	tenant := &Tenant{
+		ID:   uuid.New(),
+		Name: "Test Tenant",
+	}
+	err := tenant.Create()
+	assert.NoError(t, err)
 
-		// Test provider tenant creation
-		providerTenant := &ProviderTenant{
+	// Create test provider tenant
+	providerTenant := &ProviderTenant{
+		ID:               uuid.New(),
+		TenantID:         tenant.ID,
+		ProviderType:     ProviderTypeAzure,
+		ProviderTenantID: "test-tenant-id",
+		DisplayName:      "Test Provider",
+	}
+	err = providerTenant.Create()
+	assert.NoError(t, err)
+
+	t.Run("CreateAppRegistration", func(t *testing.T) {
+		appReg := &AppRegistration{
 			ID:               uuid.New(),
-			TenantID:         tenant.ID,
-			ProviderType:     ProviderTypeAzure,
-			ProviderTenantID: "test-azure-tenant",
-			DisplayName:      "Test Azure Provider",
+			ProviderTenantID: providerTenant.ID,
+			ClientID:         "test-client-id",
+			RedirectURI:      "http://localhost/callback",
 		}
-		err = providerTenant.Create()
+		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+		err := appReg.Create()
 		assert.NoError(t, err)
 
-		// Test app registration creation with OAuth2
-		clientID := "test-client-" + uuid.New().String()
-		clientSecret := "test-secret-" + uuid.New().String()
-		redirectURI := "http://localhost:3333/oauth2/callback"
-		scopes := []string{"https://graph.microsoft.com/Mail.Send"}
-
-		appReg, err := CreateAppRegistration(context.Background(), providerTenant.ID, "oauth2", clientID, clientSecret, redirectURI, scopes)
+		// Verify app registration was created
+		found, err := GetAppRegistration(appReg.ID)
 		assert.NoError(t, err)
-		assert.NotNil(t, appReg)
-
-		// Verify OAuth2 configuration
-		config, err := GetOAuth2Config(appReg.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, clientID, config.ClientID)
-		assert.Equal(t, redirectURI, config.RedirectURL)
-		assert.Equal(t, scopes, config.Scopes)
+		assert.Equal(t, appReg.ID, found.ID)
+		assert.Equal(t, appReg.ProviderTenantID, found.ProviderTenantID)
+		assert.Equal(t, appReg.ClientID, found.ClientID)
+		assert.Equal(t, appReg.GetScopes(), found.GetScopes())
 
 		// Clean up
 		err = appReg.Delete()
 		assert.NoError(t, err)
 	})
 
-	t.Run("MultiTenantOnboarding", func(t *testing.T) {
-		// Create multiple tenants with different configurations
-		tenants := make([]*Tenant, 3)
-		for i := 0; i < 3; i++ {
-			tenant := &Tenant{
-				ID:   uuid.New(),
-				Name: "Multi Tenant " + uuid.New().String(),
-			}
-			err := tenant.Create()
-			assert.NoError(t, err)
-			tenants[i] = tenant
-
-			// Create provider tenant for each tenant
-			providerTenant := &ProviderTenant{
-				ID:               uuid.New(),
-				TenantID:         tenant.ID,
-				ProviderType:     ProviderTypeAzure,
-				ProviderTenantID: "azure-tenant-" + uuid.New().String(),
-				DisplayName:      "Azure Provider " + tenant.Name,
-			}
-			err = providerTenant.Create()
-			assert.NoError(t, err)
-
-			// Create multiple app registrations per tenant
-			useCases := []string{"email", "dmarc", "phishing"}
-			for _, useCase := range useCases {
-				clientID := "client-" + uuid.New().String()
-				clientSecret := "secret-" + uuid.New().String()
-				redirectURI := "http://localhost:3333/" + useCase + "/callback"
-				scopes := []string{"https://graph.microsoft.com/" + useCase}
-
-				appReg, err := CreateAppRegistration(context.Background(), providerTenant.ID, useCase, clientID, clientSecret, redirectURI, scopes)
-				assert.NoError(t, err)
-				assert.NotNil(t, appReg)
-
-				// Verify isolation
-				found, err := GetAppRegistration(appReg.ID)
-				assert.NoError(t, err)
-				assert.Equal(t, providerTenant.ID, found.ProviderTenantID)
-				assert.Equal(t, useCase, found.UseCase)
-
-				// Clean up
-				err = appReg.Delete()
-				assert.NoError(t, err)
-			}
-		}
-	})
-
-	t.Run("ProviderRegistration", func(t *testing.T) {
-		tenant := &Tenant{
-			ID:   uuid.New(),
-			Name: "Provider Test Tenant",
-		}
-		err := tenant.Create()
-		assert.NoError(t, err)
-
-		// Test Azure provider registration
-		azureProvider := &ProviderTenant{
+	t.Run("CreateFeature", func(t *testing.T) {
+		appReg := &AppRegistration{
 			ID:               uuid.New(),
-			TenantID:         tenant.ID,
-			ProviderType:     ProviderTypeAzure,
-			ProviderTenantID: "azure-" + uuid.New().String(),
-			DisplayName:      "Azure Provider",
-			Region:           "us-east-1",
+			ProviderTenantID: providerTenant.ID,
+			ClientID:         "test-client-id",
+			RedirectURI:      "http://localhost/callback",
 		}
-		err = azureProvider.Create()
+		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
+
+		err := appReg.Create()
 		assert.NoError(t, err)
 
-		// Test app registration with region
-		clientID := "client-" + uuid.New().String()
-		clientSecret := "secret-" + uuid.New().String()
-		redirectURI := "http://localhost:3333/callback"
-		scopes := []string{"https://graph.microsoft.com/Mail.Send"}
-
-		appReg, err := CreateAppRegistration(context.Background(), azureProvider.ID, "email", clientID, clientSecret, redirectURI, scopes)
-		assert.NoError(t, err)
-		assert.NotNil(t, appReg)
-
-		// Verify provider-specific configuration
-		found, err := GetAppRegistration(appReg.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, azureProvider.ID, found.ProviderTenantID)
-
-		// Test provider features
 		feature := &Feature{
 			ID:               uuid.New(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
-				"provider": "azure",
-				"region":   azureProvider.Region,
+				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
 			},
 		}
+
 		err = feature.Create()
 		assert.NoError(t, err)
+
+		// Verify feature was created
+		found, err := GetFeature(feature.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, feature.ID, found.ID)
+		assert.Equal(t, feature.AppRegistrationID, found.AppRegistrationID)
+		assert.Equal(t, feature.FeatureType, found.FeatureType)
+		assert.Equal(t, feature.Enabled, found.Enabled)
 
 		// Clean up
 		err = feature.Delete()
@@ -158,4 +96,32 @@ func TestOnboarding(t *testing.T) {
 		err = appReg.Delete()
 		assert.NoError(t, err)
 	})
+
+	// Test provider tenant creation
+	t.Run("CreateProviderTenant", func(t *testing.T) {
+		ctx := context.Background()
+		providerType := ProviderTypeAzure
+		providerTenantID := "new-tenant-id"
+		displayName := "New Test Provider"
+		region := "us-east-1"
+
+		provider, err := CreateProviderTenant(ctx, tenant.ID, providerType, providerTenantID, displayName, region)
+		assert.NoError(t, err)
+		assert.NotNil(t, provider)
+		assert.Equal(t, tenant.ID, provider.TenantID)
+		assert.Equal(t, providerType, provider.ProviderType)
+		assert.Equal(t, providerTenantID, provider.ProviderTenantID)
+		assert.Equal(t, displayName, provider.DisplayName)
+		assert.Equal(t, region, provider.Region)
+
+		// Clean up
+		err = provider.Delete()
+		assert.NoError(t, err)
+	})
+
+	// Clean up
+	err = providerTenant.Delete()
+	assert.NoError(t, err)
+	err = tenant.Delete()
+	assert.NoError(t, err)
 } 

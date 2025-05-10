@@ -1,161 +1,100 @@
 package controllers
 
 import (
-	"encoding/json"
+	"context"
+	"fmt"
 	"net/http"
-	"time"
 
+	"github.com/google/uuid"
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/models"
-	"github.com/gophish/gophish/logger"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 )
 
 // OAuth2Login initiates the OAuth2 login flow
-func (as *AdminServer) OAuth2Login(w http.ResponseWriter, r *http.Request) {
+func OAuth2Login(w http.ResponseWriter, r *http.Request) {
+	// Get the app registration ID from the session
 	session := ctx.Get(r, "session").(*sessions.Session)
-	next := r.URL.Query().Get("next")
-	if next != "" {
-		session.Values["next"] = next
-	}
-
-	logger.Info("Getting OAuth2 config...")
-	config, err := models.GetOAuth2Config()
-	if err != nil {
-		logger.Error("OAuth2 config error:", err)
-		Flash(w, r, "danger", "OAuth2 configuration error")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+	appRegID, ok := session.Values["app_reg_id"].(uuid.UUID)
+	if !ok {
+		http.Error(w, "No app registration ID found in session", http.StatusBadRequest)
 		return
 	}
 
-	// Generate random state
-	state := models.GenerateRandomString(32)
+	// Get the OAuth2 config
+	config, err := models.GetOAuth2Config(appRegID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting OAuth2 config: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Generate a random state
+	state := uuid.New().String()
 	session.Values["oauth2_state"] = state
-	err = session.Save(r, w)
-	if err != nil {
-		logger.Error("Failed to save session:", err)
-		Flash(w, r, "danger", "Session error")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-		return
-	}
+	session.Save(r, w)
 
+	// Redirect to the provider's consent page
 	url := config.AuthCodeURL(state)
-	logger.Info("Redirecting to OAuth2 URL:", url)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
-// OAuth2Callback handles the OAuth2 callback from Microsoft
-func (as *AdminServer) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
+// OAuth2Callback handles the callback from the OAuth2 provider
+func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
+	// Get the session
 	session := ctx.Get(r, "session").(*sessions.Session)
-	state := session.Values["oauth2_state"]
-	if state == nil || state.(string) != r.URL.Query().Get("state") {
-		Flash(w, r, "danger", "Invalid OAuth state")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+
+	// Verify state
+	state := r.URL.Query().Get("state")
+	if state != session.Values["oauth2_state"] {
+		http.Error(w, "Invalid OAuth2 state", http.StatusBadRequest)
 		return
 	}
 
-	code := r.URL.Query().Get("code")
-	if code == "" {
-		Flash(w, r, "danger", "Authorization code not received")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-		return
-	}
-
-	config, err := models.GetOAuth2Config()
-	if err != nil {
-		logger.Error(err)
-		Flash(w, r, "danger", "OAuth2 configuration error")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-		return
-	}
-
-	token, err := config.Exchange(r.Context(), code)
-	if err != nil {
-		logger.Error(err)
-		Flash(w, r, "danger", "Failed to exchange authorization code")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-		return
-	}
-
-	// Get user profile from Microsoft Graph API
-	client := config.Client(r.Context(), token)
-	resp, err := client.Get("https://graph.microsoft.com/v1.0/me")
-	if err != nil {
-		logger.Error(err)
-		Flash(w, r, "danger", "Failed to get user profile")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-		return
-	}
-	defer resp.Body.Close()
-
-	var profile map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
-		logger.Error(err)
-		Flash(w, r, "danger", "Failed to parse user profile")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-		return
-	}
-
-	// Get or create user based on email
-	email, ok := profile["userPrincipalName"].(string)
+	// Get the app registration ID from the session
+	appRegID, ok := session.Values["app_reg_id"].(uuid.UUID)
 	if !ok {
-		Flash(w, r, "danger", "Email not found in profile")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+		http.Error(w, "No app registration ID found in session", http.StatusBadRequest)
 		return
 	}
 
-	user, err := models.GetUserByUsername(email)
+	// Get the OAuth2 config
+	config, err := models.GetOAuth2Config(appRegID)
 	if err != nil {
-		// Create new user if not exists
-		user = models.User{
-			Username: email,
-			Role:     models.Role{Slug: "user"},
-		}
-		err = models.PutUser(&user)
-		if err != nil {
-			logger.Error(err)
-			Flash(w, r, "danger", "Failed to create user")
-			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-			return
-		}
-	}
-
-	// Save OAuth2 token
-	err = models.SaveOAuth2Token(user.Id, token)
-	if err != nil {
-		logger.Error(err)
-		Flash(w, r, "danger", "Failed to save OAuth token")
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+		http.Error(w, fmt.Sprintf("Error getting OAuth2 config: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Update last login
-	user.LastLogin = time.Now().UTC()
-	err = models.PutUser(&user)
+	// Exchange the code for a token
+	code := r.URL.Query().Get("code")
+	token, err := config.Exchange(context.Background(), code)
 	if err != nil {
-		logger.Error(err)
+		http.Error(w, fmt.Sprintf("Error exchanging code for token: %v", err), http.StatusInternalServerError)
+		return
 	}
 
-	// Set session
-	session.Values["id"] = user.Id
+	// Save the token
+	userID := ctx.Get(r, "user_id").(int64)
+	err = models.SaveOAuth2Token(context.Background(), appRegID, userID, token)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error saving token: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Clear the state from the session
 	delete(session.Values, "oauth2_state")
 	session.Save(r, w)
 
-	// Redirect to next URL or dashboard
-	next, ok := session.Values["next"].(string)
-	if ok {
-		delete(session.Values, "next")
-		session.Save(r, w)
-		http.Redirect(w, r, next, http.StatusTemporaryRedirect)
-		return
+	// Redirect to the next URL or home
+	next := session.Values["next"].(string)
+	if next == "" {
+		next = "/"
 	}
-
-	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
 }
 
 // RegisterOAuth2Routes registers the OAuth2 routes with the router
 func (as *AdminServer) RegisterOAuth2Routes(router *mux.Router) {
-	router.HandleFunc("/oauth2/login", as.OAuth2Login)
-	router.HandleFunc("/oauth2/callback", as.OAuth2Callback)
+	router.HandleFunc("/oauth2/login", OAuth2Login)
+	router.HandleFunc("/oauth2/callback", OAuth2Callback)
 } 

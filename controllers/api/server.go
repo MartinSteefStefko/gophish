@@ -86,6 +86,12 @@ func (as *Server) registerRoutes() {
 	router.HandleFunc("/webhooks/", mid.Use(as.Webhooks, mid.RequirePermission(models.PermissionModifySystem)))
 	router.HandleFunc("/webhooks/{id:[0-9]+}/validate", mid.Use(as.ValidateWebhook, mid.RequirePermission(models.PermissionModifySystem)))
 	router.HandleFunc("/webhooks/{id:[0-9]+}", mid.Use(as.Webhook, mid.RequirePermission(models.PermissionModifySystem)))
+
+	// Encryption routes
+	router.HandleFunc("/encryption/key", as.GenerateKey)
+	router.HandleFunc("/encryption/encrypt", as.EncryptData)
+	router.HandleFunc("/encryption/decrypt", as.DecryptData)
+
 	as.handler = router
 }
 

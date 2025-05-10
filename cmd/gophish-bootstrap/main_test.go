@@ -20,7 +20,7 @@ func TestBootstrapFlow(t *testing.T) {
 		"--client-id", "test-client-id",
 		"--client-secret", "test-client-secret",
 		"--redirect-uri", "https://test.com/oauth2/callback",
-		"--use-case", "oauth2",
+		"--feature", "oauth2",
 	}
 
 	// Create a test context
@@ -30,7 +30,7 @@ func TestBootstrapFlow(t *testing.T) {
 	tenant, err := models.CreateTenant(ctx, "Test Tenant")
 	assert.NoError(t, err)
 	assert.NotNil(t, tenant)
-	assert.Equal(t, "Test Tenant", tenant.DisplayName)
+	assert.Equal(t, "Test Tenant", tenant.Name)
 
 	// Create provider tenant
 	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, "azure", "test-tenant-id", "Test Tenant", "us-east-1")
@@ -44,10 +44,9 @@ func TestBootstrapFlow(t *testing.T) {
 		"https://graph.microsoft.com/.default",
 		"offline_access",
 	}
-	appReg, err := models.CreateAppRegistration(ctx, provTenant.ID, "oauth2", "test-client-id", "test-client-secret", "https://test.com/oauth2/callback", scopes)
+	appReg, err := models.CreateAppRegistration(ctx, provTenant.ID, "test-client-id", "test-client-secret", "https://test.com/oauth2/callback", scopes)
 	assert.NoError(t, err)
 	assert.NotNil(t, appReg)
-	assert.Equal(t, "oauth2", appReg.UseCase)
 	assert.Equal(t, "test-client-id", appReg.ClientID)
 
 	// Enable feature
@@ -58,51 +57,51 @@ func TestBootstrapFlow(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify feature is enabled
-	var feature models.Feature
-	err = models.db.Where("app_registration_id = ? AND feature_type = ?", appReg.ID, "oauth2").First(&feature).Error
+	features, err := models.GetFeaturesByAppRegistration(appReg.ID)
 	assert.NoError(t, err)
-	assert.True(t, feature.Enabled)
+	assert.Len(t, features, 1)
+	assert.Equal(t, "oauth2", features[0].FeatureType)
+	assert.True(t, features[0].Enabled)
 }
 
-func TestBootstrapEmailFlow(t *testing.T) {
-	// Set up test environment for email use case
+func TestBootstrapPhishingFlow(t *testing.T) {
+	// Set up test environment for phishing feature
 	os.Args = []string{
 		"gophish-bootstrap",
-		"--name", "Test Email Tenant",
+		"--name", "Test Phishing Tenant",
 		"--provider", "azure",
-		"--provider-tenant-id", "test-email-tenant-id",
+		"--provider-tenant-id", "test-phishing-tenant-id",
 		"--region", "us-east-1",
-		"--client-id", "test-email-client-id",
-		"--client-secret", "test-email-client-secret",
+		"--client-id", "test-phishing-client-id",
+		"--client-secret", "test-phishing-client-secret",
 		"--redirect-uri", "https://test.com/oauth2/callback",
-		"--use-case", "email",
+		"--feature", "phishing",
 	}
 
 	// Create a test context
 	ctx := context.Background()
 
-	// Run the bootstrap process for email
-	tenant, err := models.CreateTenant(ctx, "Test Email Tenant")
+	// Run the bootstrap process for phishing
+	tenant, err := models.CreateTenant(ctx, "Test Phishing Tenant")
 	assert.NoError(t, err)
 	assert.NotNil(t, tenant)
 
 	// Create provider tenant
-	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, "azure", "test-email-tenant-id", "Test Email Tenant", "us-east-1")
+	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, "azure", "test-phishing-tenant-id", "Test Phishing Tenant", "us-east-1")
 	assert.NoError(t, err)
 	assert.NotNil(t, provTenant)
 
-	// Create app registration with email scopes
+	// Create app registration with phishing scopes
 	scopes := []string{
 		"https://graph.microsoft.com/.default",
 		"offline_access",
-		"https://outlook.office.com/SMTP.Send",
+		"https://graph.microsoft.com/Mail.Send",
 	}
-	appReg, err := models.CreateAppRegistration(ctx, provTenant.ID, "email", "test-email-client-id", "test-email-client-secret", "https://test.com/oauth2/callback", scopes)
+	appReg, err := models.CreateAppRegistration(ctx, provTenant.ID, "test-phishing-client-id", "test-phishing-client-secret", "https://test.com/oauth2/callback", scopes)
 	assert.NoError(t, err)
 	assert.NotNil(t, appReg)
-	assert.Equal(t, "email", appReg.UseCase)
 
-	// Enable email feature
+	// Enable phishing feature
 	config := map[string]interface{}{
 		"enabled": true,
 		"smtp": map[string]interface{}{
@@ -110,13 +109,14 @@ func TestBootstrapEmailFlow(t *testing.T) {
 			"port": 587,
 		},
 	}
-	err = models.EnableFeature(ctx, appReg.ID, "email", config)
+	err = models.EnableFeature(ctx, appReg.ID, "phishing", config)
 	assert.NoError(t, err)
 
 	// Verify feature is enabled with correct config
-	var feature models.Feature
-	err = models.db.Where("app_registration_id = ? AND feature_type = ?", appReg.ID, "email").First(&feature).Error
+	features, err := models.GetFeaturesByAppRegistration(appReg.ID)
 	assert.NoError(t, err)
-	assert.True(t, feature.Enabled)
-	assert.Contains(t, feature.Config, "smtp")
+	assert.Len(t, features, 1)
+	assert.Equal(t, "phishing", features[0].FeatureType)
+	assert.True(t, features[0].Enabled)
+	assert.Contains(t, features[0].Config, "smtp")
 } 

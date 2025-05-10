@@ -141,7 +141,7 @@ func GetUserOAuth2Token(ctx context.Context, appRegID uuid.UUID, userID int64) (
 }
 
 // CreateAppRegistration creates a new app registration with encrypted client secret
-func CreateAppRegistration(ctx context.Context, providerTenantID uuid.UUID, useCase, clientID, clientSecret, redirectURI string, scopes []string) (*AppRegistration, error) {
+func CreateAppRegistration(ctx context.Context, providerTenantID uuid.UUID, clientID, clientSecret, redirectURI string, scopes []string) (*AppRegistration, error) {
 	// Hash the client secret for verification
 	secretHash := HashSecret(clientSecret)
 
@@ -154,7 +154,6 @@ func CreateAppRegistration(ctx context.Context, providerTenantID uuid.UUID, useC
 	appReg := &AppRegistration{
 		ID:                 uuid.New(),
 		ProviderTenantID:   providerTenantID,
-		UseCase:            useCase,
 		ClientID:           clientID,
 		ClientSecretHash:   secretHash,
 		ClientSecretEncrypted: secretEnc,

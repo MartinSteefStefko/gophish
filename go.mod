@@ -30,6 +30,10 @@ require (
 )
 
 require (
+	github.com/Azure/azure-sdk-for-go v68.0.0+incompatible // indirect
+	github.com/Azure/go-autorest/autorest/azure/auth v0.5.13 // indirect
+	github.com/Azure/go-autorest/autorest/to v0.4.1 // indirect
+	github.com/Azure/go-autorest/autorest/validation v0.3.2 // indirect
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/google/uuid v1.6.0 // indirect

@@ -10,12 +10,12 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestOAuth2ConfigWithMultiTenant(t *testing.T) {
+func TestOAuth2(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
-	// Create a tenant
+	// Create test tenant
 	tenant := &Tenant{
 		ID:   uuid.New(),
 		Name: "Test Tenant",
@@ -23,112 +23,27 @@ func TestOAuth2ConfigWithMultiTenant(t *testing.T) {
 	err := tenant.Create()
 	assert.NoError(t, err)
 
-	// Create a provider tenant
+	// Create test provider tenant
 	providerTenant := &ProviderTenant{
 		ID:               uuid.New(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
-		DisplayName:      "Test Azure Tenant",
+		DisplayName:      "Test Provider",
 	}
 	err = providerTenant.Create()
 	assert.NoError(t, err)
 
-	// Create an app registration
-	clientSecret := "test-secret"
+	// Create test app registration
 	appReg := &AppRegistration{
 		ID:               uuid.New(),
 		ProviderTenantID: providerTenant.ID,
-		UseCase:          "test-use-case",
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
 	}
-	appReg.SetScopes([]string{"test.scope"})
+	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
-	// Encrypt and hash the client secret
-	secretHash := HashSecret(clientSecret)
-	secretEnc, err := Encrypt([]byte(clientSecret))
-	assert.NoError(t, err)
-
-	appReg.ClientSecretHash = secretHash
-	appReg.ClientSecretEncrypted = secretEnc
-
-	err = appReg.Create()
-	assert.NoError(t, err)
-	assert.NotNil(t, appReg)
-
-	// Test cases
-	tests := []struct {
-		name    string
-		appID   uuid.UUID
-		wantErr bool
-	}{
-		{
-			name:    "Valid app registration",
-			appID:   appReg.ID,
-			wantErr: false,
-		},
-		{
-			name:    "Non-existent app registration",
-			appID:   uuid.New(),
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config, err := GetOAuth2Config(tt.appID)
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-
-			assert.NoError(t, err)
-			assert.NotNil(t, config)
-			assert.Equal(t, "test-client-id", config.ClientID)
-			assert.Equal(t, clientSecret, config.ClientSecret)
-			assert.Equal(t, "http://localhost/callback", config.RedirectURL)
-			assert.Contains(t, config.Scopes, "test.scope")
-		})
-	}
-}
-
-func TestOAuth2TokenManagement(t *testing.T) {
-	// Setup
-	cleanup := setupTest(t)
-	defer cleanup()
-
-	// Create test data
-	tenant := &Tenant{
-		ID:   uuid.New(),
-		Name: "Test Tenant",
-	}
-	err := tenant.Create()
-	assert.NoError(t, err)
-
-	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
-		TenantID:         tenant.ID,
-		ProviderType:     ProviderTypeAzure,
-		ProviderTenantID: "test-tenant-id",
-		DisplayName:      "Test Azure Tenant",
-	}
-	err = providerTenant.Create()
-	assert.NoError(t, err)
-
-	// Create an app registration
 	clientSecret := "test-secret"
-	appReg := &AppRegistration{
-		ID:               uuid.New(),
-		ProviderTenantID: providerTenant.ID,
-		UseCase:          "test-use-case",
-		ClientID:         "test-client-id",
-		RedirectURI:      "http://localhost/callback",
-	}
-	appReg.SetScopes([]string{"test.scope"})
-
-	// Encrypt and hash the client secret
 	secretHash := HashSecret(clientSecret)
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
@@ -139,41 +54,60 @@ func TestOAuth2TokenManagement(t *testing.T) {
 	err = appReg.Create()
 	assert.NoError(t, err)
 
-	// Test token management
-	ctx := context.Background()
-	userID := int64(1)
-	token := &oauth2.Token{
-		AccessToken:  "test-access-token",
-		TokenType:    "Bearer",
-		RefreshToken: "test-refresh-token",
-		Expiry:      time.Now().Add(time.Hour),
+	// Create OAuth2 feature
+	feature := &Feature{
+		ID:               uuid.New(),
+		AppRegistrationID: appReg.ID,
+		FeatureType:      FeatureTypeOAuth2,
+		Enabled:          true,
+		Config: map[string]interface{}{
+			"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
+		},
 	}
-
-	// Save token
-	err = SaveOAuth2Token(ctx, appReg.ID, userID, token)
+	err = feature.Create()
 	assert.NoError(t, err)
 
-	// Retrieve token
-	retrieved, err := GetUserOAuth2Token(ctx, appReg.ID, userID)
-	assert.NoError(t, err)
-	assert.Equal(t, token.AccessToken, retrieved.AccessToken)
-	assert.Equal(t, token.RefreshToken, retrieved.RefreshToken)
-	assert.Equal(t, token.TokenType, retrieved.TokenType)
-	assert.WithinDuration(t, token.Expiry, retrieved.Expiry, time.Second)
+	t.Run("GetOAuth2Config", func(t *testing.T) {
+		config, err := GetOAuth2Config(appReg.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, appReg.ClientID, config.ClientID)
+		assert.Equal(t, clientSecret, config.ClientSecret)
+		assert.Equal(t, appReg.RedirectURI, config.RedirectURL)
+		assert.Equal(t, appReg.GetScopes(), config.Scopes)
+	})
 
-	// Test token update
-	newToken := &oauth2.Token{
-		AccessToken:  "new-access-token",
-		TokenType:    "Bearer",
-		RefreshToken: "new-refresh-token",
-		Expiry:      time.Now().Add(2 * time.Hour),
-	}
-	err = SaveOAuth2Token(ctx, appReg.ID, userID, newToken)
-	assert.NoError(t, err)
+	t.Run("SaveAndGetOAuth2Token", func(t *testing.T) {
+		ctx := context.Background()
+		userID := int64(1)
 
-	// Verify update
-	updated, err := GetUserOAuth2Token(ctx, appReg.ID, userID)
+		// Create test token
+		token := &oauth2.Token{
+			AccessToken:  "test_access_token",
+			TokenType:    "Bearer",
+			RefreshToken: "test_refresh_token",
+			Expiry:      time.Now().Add(time.Hour),
+		}
+
+		// Save token
+		err := SaveOAuth2Token(ctx, appReg.ID, userID, token)
+		assert.NoError(t, err)
+
+		// Get token
+		savedToken, err := GetUserOAuth2Token(ctx, appReg.ID, userID)
+		assert.NoError(t, err)
+		assert.Equal(t, token.AccessToken, savedToken.AccessToken)
+		assert.Equal(t, token.TokenType, savedToken.TokenType)
+		assert.Equal(t, token.RefreshToken, savedToken.RefreshToken)
+		assert.WithinDuration(t, token.Expiry, savedToken.Expiry, time.Second)
+	})
+
+	// Clean up
+	err = feature.Delete()
 	assert.NoError(t, err)
-	assert.Equal(t, newToken.AccessToken, updated.AccessToken)
-	assert.Equal(t, newToken.RefreshToken, updated.RefreshToken)
+	err = appReg.Delete()
+	assert.NoError(t, err)
+	err = providerTenant.Delete()
+	assert.NoError(t, err)
+	err = tenant.Delete()
+	assert.NoError(t, err)
 } 

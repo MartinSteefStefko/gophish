@@ -10,7 +10,7 @@ import (
 
 func TestAppRegistration(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create test tenant
@@ -36,7 +36,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         fmt.Sprintf("test-client-id-%s", uuid.New().String()),
 			RedirectURI:      "http://localhost/callback",
 		}
@@ -61,7 +60,6 @@ func TestAppRegistration(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, appReg.ID, found.ID)
 		assert.Equal(t, appReg.ProviderTenantID, found.ProviderTenantID)
-		assert.Equal(t, appReg.UseCase, found.UseCase)
 		assert.Equal(t, appReg.ClientID, found.ClientID)
 		assert.Equal(t, appReg.GetScopes(), found.GetScopes())
 
@@ -79,7 +77,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         fmt.Sprintf("test-client-id-%s", uuid.New().String()),
 			RedirectURI:      "http://localhost/callback",
 		}
@@ -133,7 +130,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         fmt.Sprintf("test-client-id-%s", uuid.New().String()),
 			RedirectURI:      "http://localhost/callback",
 		}
@@ -182,7 +178,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg1 := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         fmt.Sprintf("client-id-%s", uuid.New().String()),
 			RedirectURI:      "http://localhost/callback1",
 		}
@@ -192,7 +187,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg2 := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: otherProviderTenant.ID,
-			UseCase:          "email",
 			ClientID:         fmt.Sprintf("client-id-%s", uuid.New().String()),
 			RedirectURI:      "http://localhost/callback2",
 		}
@@ -221,7 +215,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         fmt.Sprintf("test-client-id-%s", uuid.New().String()),
 			RedirectURI:      "http://localhost/callback",
 		}
@@ -257,7 +250,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         "", // Empty client ID
 			RedirectURI:      "http://localhost/callback",
 		}
@@ -269,7 +261,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg = &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         "test-client-id",
 			RedirectURI:      "invalid-uri", // Invalid URI
 		}
@@ -281,7 +272,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg1 := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         "duplicate-id",
 			RedirectURI:      "http://localhost/callback1",
 		}
@@ -291,7 +281,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg2 := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         "duplicate-id", // Same client ID
 			RedirectURI:      "http://localhost/callback2",
 		}
@@ -321,7 +310,6 @@ func TestAppRegistration(t *testing.T) {
 		appReg := &AppRegistration{
 			ID:               uuid.New(),
 			ProviderTenantID: providerTenant.ID,
-			UseCase:          "email",
 			ClientID:         "test-client-id",
 			RedirectURI:      "http://localhost/callback",
 			ClientSecretEncrypted: []byte("invalid-encrypted-data"),
@@ -338,22 +326,43 @@ func TestAppRegistration(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("UseCaseTests", func(t *testing.T) {
-		// Test different use cases
-		useCases := []string{"email", "dmarc", "phishing", "reporting"}
-		for _, useCase := range useCases {
+	t.Run("FeatureTests", func(t *testing.T) {
+		// Test different features
+		featureTypes := []string{"phishing", "oauth2", "dmarc", "reporting"}
+		for _, featureType := range featureTypes {
+			// Create app registration
 			appReg := &AppRegistration{
 				ID:               uuid.New(),
 				ProviderTenantID: providerTenant.ID,
-				UseCase:          useCase,
-				ClientID:         "test-client-id-" + useCase,
-				RedirectURI:      "http://localhost/callback/" + useCase,
+				ClientID:         "test-client-id-" + featureType,
+				RedirectURI:      "http://localhost/callback/" + featureType,
 			}
 			err := appReg.Create()
 			assert.NoError(t, err)
-			assert.Equal(t, useCase, appReg.UseCase)
+
+			// Enable feature
+			feature := &Feature{
+				ID:               uuid.New(),
+				AppRegistrationID: appReg.ID,
+				FeatureType:      FeatureType(featureType),
+				Enabled:          true,
+				Config: map[string]interface{}{
+					"enabled": true,
+				},
+			}
+			err = feature.Create()
+			assert.NoError(t, err)
+
+			// Verify feature
+			features, err := GetFeaturesByAppRegistration(appReg.ID)
+			assert.NoError(t, err)
+			assert.Len(t, features, 1)
+			assert.Equal(t, featureType, string(features[0].FeatureType))
+			assert.True(t, features[0].Enabled)
 
 			// Clean up
+			err = feature.Delete()
+			assert.NoError(t, err)
 			err = appReg.Delete()
 			assert.NoError(t, err)
 		}
@@ -364,7 +373,6 @@ func TestAppRegistration(t *testing.T) {
 			appReg := &AppRegistration{
 				ID:               uuid.New(),
 				ProviderTenantID: providerTenant.ID,
-				UseCase:          "email",
 				ClientID:         "test-client-id-" + region,
 				RedirectURI:      "http://localhost/callback",
 				Region:          region,

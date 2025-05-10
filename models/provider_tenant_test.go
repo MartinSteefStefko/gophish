@@ -7,9 +7,142 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestProviderTenant(t *testing.T) {
+	// Setup
+	cleanup := SetupTest(t)
+	defer cleanup()
+
+	// Create test tenant
+	tenant := &Tenant{
+		ID:   uuid.New(),
+		Name: "Test Tenant",
+	}
+	err := tenant.Create()
+	assert.NoError(t, err)
+
+	t.Run("CreateProviderTenant", func(t *testing.T) {
+		providerTenant := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         tenant.ID,
+			ProviderType:     ProviderTypeAzure,
+			ProviderTenantID: "test-tenant-id",
+			DisplayName:      "Test Provider",
+		}
+		err := providerTenant.Create()
+		assert.NoError(t, err)
+
+		// Verify provider tenant was created
+		found, err := GetProviderTenant(providerTenant.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, providerTenant.ID, found.ID)
+		assert.Equal(t, providerTenant.TenantID, found.TenantID)
+		assert.Equal(t, providerTenant.ProviderType, found.ProviderType)
+		assert.Equal(t, providerTenant.ProviderTenantID, found.ProviderTenantID)
+		assert.Equal(t, providerTenant.DisplayName, found.DisplayName)
+
+		// Clean up
+		err = providerTenant.Delete()
+		assert.NoError(t, err)
+	})
+
+	t.Run("UpdateProviderTenant", func(t *testing.T) {
+		providerTenant := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         tenant.ID,
+			ProviderType:     ProviderTypeAzure,
+			ProviderTenantID: "test-tenant-id",
+			DisplayName:      "Test Provider",
+		}
+		err := providerTenant.Create()
+		assert.NoError(t, err)
+
+		// Update provider tenant
+		providerTenant.DisplayName = "Updated Provider"
+		err = providerTenant.Update()
+		assert.NoError(t, err)
+
+		// Verify update
+		found, err := GetProviderTenant(providerTenant.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, "Updated Provider", found.DisplayName)
+
+		// Clean up
+		err = providerTenant.Delete()
+		assert.NoError(t, err)
+	})
+
+	t.Run("DeleteProviderTenant", func(t *testing.T) {
+		providerTenant := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         tenant.ID,
+			ProviderType:     ProviderTypeAzure,
+			ProviderTenantID: "test-tenant-id",
+			DisplayName:      "Test Provider",
+		}
+		err := providerTenant.Create()
+		assert.NoError(t, err)
+
+		// Delete provider tenant
+		err = providerTenant.Delete()
+		assert.NoError(t, err)
+
+		// Verify deletion
+		_, err = GetProviderTenant(providerTenant.ID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "provider tenant not found")
+	})
+
+	t.Run("GetProviderTenantsByTenant", func(t *testing.T) {
+		// Create multiple provider tenants
+		pt1 := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         tenant.ID,
+			ProviderType:     ProviderTypeAzure,
+			ProviderTenantID: "test-tenant-id-1",
+			DisplayName:      "Test Provider 1",
+		}
+		err := pt1.Create()
+		assert.NoError(t, err)
+
+		pt2 := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         tenant.ID,
+			ProviderType:     ProviderTypeAzure,
+			ProviderTenantID: "test-tenant-id-2",
+			DisplayName:      "Test Provider 2",
+		}
+		err = pt2.Create()
+		assert.NoError(t, err)
+
+		// Get provider tenants by tenant
+		providerTenants, err := GetProviderTenantsByTenantID(tenant.ID)
+		assert.NoError(t, err)
+		assert.Len(t, providerTenants, 2)
+
+		// Clean up
+		err = pt1.Delete()
+		assert.NoError(t, err)
+		err = pt2.Delete()
+		assert.NoError(t, err)
+	})
+
+	t.Run("InvalidProviderType", func(t *testing.T) {
+		providerTenant := &ProviderTenant{
+			ID:               uuid.New(),
+			TenantID:         tenant.ID,
+			ProviderType:     "invalid",
+			ProviderTenantID: "test-tenant-id",
+			DisplayName:      "Test Provider",
+		}
+		err := providerTenant.Create()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid provider type")
+	})
+}
+
 func TestCreateProviderTenant(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create a parent tenant first
@@ -112,7 +245,7 @@ func TestCreateProviderTenant(t *testing.T) {
 
 func TestGetProviderTenant(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create a parent tenant
@@ -183,7 +316,7 @@ func TestGetProviderTenant(t *testing.T) {
 
 func TestListProviderTenants(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create a parent tenant
@@ -235,7 +368,7 @@ func TestListProviderTenants(t *testing.T) {
 
 func TestUpdateProviderTenant(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create a parent tenant
@@ -333,7 +466,7 @@ func TestUpdateProviderTenant(t *testing.T) {
 
 func TestDeleteProviderTenant(t *testing.T) {
 	// Setup
-	cleanup := setupTest(t)
+	cleanup := SetupTest(t)
 	defer cleanup()
 
 	// Create a parent tenant
