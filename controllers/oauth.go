@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	ctx "github.com/gophish/gophish/context"
+	"github.com/gophish/gophish/middleware"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -18,8 +19,15 @@ func OAuth2Login(w http.ResponseWriter, r *http.Request) {
 	session := ctx.Get(r, "session").(*sessions.Session)
 	appRegID, ok := session.Values["app_reg_id"].(uuid.UUID)
 	if !ok {
-		http.Error(w, "No app registration ID found in session", http.StatusBadRequest)
-		return
+		// Get the default app registration
+		appRegs, err := models.GetAppRegistrations()
+		if err != nil || len(appRegs) == 0 {
+			http.Error(w, "No app registrations found", http.StatusInternalServerError)
+			return
+		}
+		appRegID = appRegs[0].ID
+		session.Values["app_reg_id"] = appRegID
+		session.Save(r, w)
 	}
 
 	// Get the OAuth2 config
@@ -90,11 +98,11 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	if next == "" {
 		next = "/"
 	}
-	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
+		http.Redirect(w, r, next, http.StatusTemporaryRedirect)
 }
 
 // RegisterOAuth2Routes registers the OAuth2 routes with the router
 func (as *AdminServer) RegisterOAuth2Routes(router *mux.Router) {
-	router.HandleFunc("/oauth2/login", OAuth2Login)
-	router.HandleFunc("/oauth2/callback", OAuth2Callback)
+	router.HandleFunc("/oauth2/login", middleware.Use(OAuth2Login, as.limiter.Limit))
+	router.HandleFunc("/oauth2/callback", middleware.Use(OAuth2Callback, as.limiter.Limit))
 } 

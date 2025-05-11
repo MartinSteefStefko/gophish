@@ -10,6 +10,15 @@ import (
 	"golang.org/x/oauth2/microsoft"
 )
 
+// GetAppRegistrations retrieves all app registrations
+func GetAppRegistrations() ([]AppRegistration, error) {
+	var appRegs []AppRegistration
+	if err := db.Find(&appRegs).Error; err != nil {
+		return nil, fmt.Errorf("failed to get app registrations: %v", err)
+	}
+	return appRegs, nil
+}
+
 // GetAppRegistration retrieves an app registration by ID
 func GetAppRegistration(id uuid.UUID) (*AppRegistration, error) {
 	var appReg AppRegistration
