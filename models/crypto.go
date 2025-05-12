@@ -28,19 +28,21 @@ var masterKey *EncryptionKey
 
 // InitializeEncryption sets up the encryption system
 func InitializeEncryption() error {
-	// In production, this should come from a secure key management system
+	// Get the master encryption key from environment variable
 	keyStr := os.Getenv("MASTER_ENCRYPTION_KEY")
 	if keyStr == "" {
-		return fmt.Errorf("MASTER_ENCRYPTION_KEY environment variable not set")
+		return fmt.Errorf("MASTER_ENCRYPTION_KEY environment variable not set - please run scripts/generate_encryption_key.sh to generate a key")
 	}
 
+	// Decode the base64 key
 	key, err := base64.StdEncoding.DecodeString(keyStr)
 	if err != nil {
 		return fmt.Errorf("invalid master encryption key format: %v", err)
 	}
 
+	// Validate key length
 	if len(key) != keyLength {
-		return fmt.Errorf("master encryption key must be %d bytes", keyLength)
+		return fmt.Errorf("master encryption key must be %d bytes (got %d bytes)", keyLength, len(key))
 	}
 
 	masterKey = &EncryptionKey{key: key}
@@ -68,7 +70,7 @@ func DecryptFromString(encryptedStr string) ([]byte, error) {
 // Encrypt encrypts data using AES-256-GCM
 func Encrypt(data []byte) ([]byte, error) {
 	if masterKey == nil {
-		return nil, fmt.Errorf("encryption not initialized")
+		return nil, fmt.Errorf("encryption not initialized - MASTER_ENCRYPTION_KEY environment variable must be set")
 	}
 
 	// Generate a random salt
@@ -111,7 +113,7 @@ func Encrypt(data []byte) ([]byte, error) {
 // Decrypt decrypts data using AES-256-GCM
 func Decrypt(encrypted []byte) ([]byte, error) {
 	if masterKey == nil {
-		return nil, fmt.Errorf("encryption not initialized")
+		return nil, fmt.Errorf("encryption not initialized - MASTER_ENCRYPTION_KEY environment variable must be set")
 	}
 
 	if len(encrypted) < saltLength {

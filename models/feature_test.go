@@ -40,11 +40,9 @@ func TestFeatureManagement(t *testing.T) {
 	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
 	clientSecret := "test-secret"
-	secretHash := HashSecret(clientSecret)
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = string(secretHash)
 	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
@@ -56,9 +54,9 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("EnableFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
 				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
@@ -82,9 +80,9 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("DisableFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeEmail,
+			FeatureType:       FeatureTypeEmail,
 			Enabled:          true,
 		}
 		err := feature.Create()
@@ -107,9 +105,9 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("UpdateFeatureConfig", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
 				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
@@ -170,18 +168,18 @@ func TestFeatureManagement(t *testing.T) {
 
 		// Create features for both app registrations
 		feature1 := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 		}
 		err = feature1.Create()
 		assert.NoError(t, err)
 
 		feature2 := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: otherAppReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 		}
 		err = feature2.Create()
@@ -207,9 +205,9 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("InvalidFeatureType", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      "invalid",
+			FeatureType:       "invalid",
 			Enabled:          true,
 		}
 		err := feature.Create()
@@ -219,9 +217,9 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("DeleteFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 		}
 		err := feature.Create()
@@ -272,11 +270,9 @@ func TestFeature(t *testing.T) {
 	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
 	clientSecret := "test-secret"
-	secretHash := HashSecret(clientSecret)
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = string(secretHash)
 	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
@@ -284,9 +280,9 @@ func TestFeature(t *testing.T) {
 
 	t.Run("CreateFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
 				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
@@ -314,9 +310,9 @@ func TestFeature(t *testing.T) {
 
 	t.Run("UpdateFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
 				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},
@@ -350,9 +346,9 @@ func TestFeature(t *testing.T) {
 
 	t.Run("DeleteFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
 				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},

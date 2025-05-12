@@ -42,20 +42,18 @@ func TestOnboarding(t *testing.T) {
 		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
 		clientSecret := "test-secret"
-		secretHash := HashSecret(clientSecret)
 		secretEnc, err := Encrypt([]byte(clientSecret))
 		assert.NoError(t, err)
 
-		appReg.ClientSecretHash = string(secretHash)
 		appReg.ClientSecretEncrypted = string(secretEnc)
 
 		err = appReg.Create()
 		assert.NoError(t, err)
 
 		feature := &Feature{
-			ID:               uuid.New().String(),
+			ID:                uuid.New().String(),
 			AppRegistrationID: appReg.ID,
-			FeatureType:      FeatureTypeOAuth2,
+			FeatureType:       FeatureTypeOAuth2,
 			Enabled:          true,
 			Config: map[string]interface{}{
 				"scopes": []string{"https://graph.microsoft.com/Mail.Send"},

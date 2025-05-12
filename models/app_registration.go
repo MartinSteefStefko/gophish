@@ -15,10 +15,11 @@ type AppRegistration struct {
 	ID                  string    `gorm:"type:text;primary_key"`
 	ProviderTenantID    string    `gorm:"type:text;index"`
 	ClientID            string    `gorm:"type:text"`
-	ClientSecretHash    string    `gorm:"type:text"`
 	ClientSecretEncrypted string  `gorm:"type:text"`
 	RedirectURI         string    `gorm:"type:text"`
 	ScopesStr           string    `gorm:"column:scopes;type:text"`
+	Region              string    `gorm:"type:text"`
+	ExternalID          string    `gorm:"type:text"`
 	CreatedAt           time.Time `gorm:"type:timestamp"`
 	UpdatedAt           time.Time `gorm:"type:timestamp"`
 }
@@ -178,13 +179,11 @@ func CreateAppRegistration(ctx context.Context, providerTenantID, clientID, clie
 	appReg.SetScopes(scopes)
 
 	// Hash and encrypt the client secret
-	secretHash := HashSecret(clientSecret)
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt client secret: %v", err)
 	}
 
-	appReg.ClientSecretHash = string(secretHash)
 	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	// Create the app registration

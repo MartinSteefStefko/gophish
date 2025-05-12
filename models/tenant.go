@@ -25,70 +25,70 @@ func (t *Tenant) BeforeCreate() error {
 
 // Validate checks if the tenant has valid data
 func (t *Tenant) Validate() error {
-	if t.Name == "" {
-		return errors.New("tenant name cannot be empty")
-	}
+    if t.Name == "" {
+        return errors.New("tenant name cannot be empty")
+    }
 	if t.ID == "" {
-		return errors.New("tenant ID cannot be empty")
-	}
-	return nil
+        return errors.New("tenant ID cannot be empty")
+    }
+    return nil
 }
 
 // Create inserts a new tenant into the database
 func (t *Tenant) Create() error {
-	if err := t.Validate(); err != nil {
-		return err
-	}
+    if err := t.Validate(); err != nil {
+        return err
+    }
 	if t.ID == "" {
 		t.ID = uuid.New().String()
-	}
-	t.CreatedAt = time.Now().UTC()
-	return db.Create(t).Error
+    }
+    t.CreatedAt = time.Now().UTC()
+    return db.Create(t).Error
 }
 
 // Update modifies an existing tenant in the database
 func (t *Tenant) Update() error {
-	if err := t.Validate(); err != nil {
-		return err
-	}
-	return db.Save(t).Error
+    if err := t.Validate(); err != nil {
+        return err
+    }
+    return db.Save(t).Error
 }
 
 // Delete removes a tenant from the database
 func (t *Tenant) Delete() error {
-	// Check if the record exists first
-	var count int64
-	if err := db.Model(&Tenant{}).Where("id = ?", t.ID).Count(&count).Error; err != nil {
-		return fmt.Errorf("tenant not found: %v", err)
-	}
-	if count == 0 {
-		return fmt.Errorf("tenant not found: record does not exist")
-	}
+    // Check if the record exists first
+    var count int64
+    if err := db.Model(&Tenant{}).Where("id = ?", t.ID).Count(&count).Error; err != nil {
+        return fmt.Errorf("tenant not found: %v", err)
+    }
+    if count == 0 {
+        return fmt.Errorf("tenant not found: record does not exist")
+    }
 
-	err := db.Delete(t).Error
-	if err != nil {
-		return fmt.Errorf("tenant not found: %v", err)
-	}
-	return nil
+    err := db.Delete(t).Error
+    if err != nil {
+        return fmt.Errorf("tenant not found: %v", err)
+    }
+    return nil
 }
 
 // GetTenant retrieves a tenant by ID
 func GetTenant(id string) (*Tenant, error) {
 	if id == "" {
-		return nil, errors.New("invalid tenant ID")
-	}
-	
-	tenant := &Tenant{}
-	err := db.Where("id = ?", id).First(tenant).Error
-	if err != nil {
-		return nil, fmt.Errorf("tenant not found: %v", err)
-	}
-	return tenant, nil
+        return nil, errors.New("invalid tenant ID")
+    }
+    
+    tenant := &Tenant{}
+    err := db.Where("id = ?", id).First(tenant).Error
+    if err != nil {
+        return nil, fmt.Errorf("tenant not found: %v", err)
+    }
+    return tenant, nil
 }
 
 // GetTenants retrieves all tenants
 func GetTenants() ([]*Tenant, error) {
-	var tenants []*Tenant
-	err := db.Find(&tenants).Error
-	return tenants, err
+    var tenants []*Tenant
+    err := db.Find(&tenants).Error
+    return tenants, err
 } 

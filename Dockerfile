@@ -20,6 +20,10 @@ RUN go get -v && go build -v
 RUN go install github.com/pressly/goose/v3/cmd/goose@v3.14.0
 RUN cp /go/bin/goose /go/src/github.com/gophish/gophish/
 
+# Build gophish-bootstrap binary
+WORKDIR /go/src/github.com/gophish/gophish/cmd/gophish-bootstrap
+RUN go build -v
+
 
 # Runtime container
 FROM debian:stable-slim
@@ -46,6 +50,10 @@ RUN chown app. config.json
 # Copy goose binary to a PATH location
 COPY --from=build-golang /go/src/github.com/gophish/gophish/goose /usr/local/bin/
 RUN chmod +x /usr/local/bin/goose
+
+# Copy gophish-bootstrap binary
+COPY --from=build-golang /go/src/github.com/gophish/gophish/cmd/gophish-bootstrap/gophish-bootstrap /opt/gophish/
+RUN chown app. /opt/gophish/gophish-bootstrap && chmod +x /opt/gophish/gophish-bootstrap
 
 RUN setcap 'cap_net_bind_service=+ep' /opt/gophish/gophish
 

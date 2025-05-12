@@ -18,10 +18,10 @@ var mockEndpoint oauth2.Endpoint
 
 // CustomTokenSource is a token source that automatically saves refreshed tokens
 type CustomTokenSource struct {
-	config    *oauth2.Config
-	token     *oauth2.Token
-	appRegID  string
-	userID    int64
+	config     *oauth2.Config
+	token      *oauth2.Token
+	appRegID   string
+	userID     int64
 }
 
 func (s *CustomTokenSource) Token() (*oauth2.Token, error) {
@@ -69,6 +69,9 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 
 	// Create an app registration
 	clientSecret := "test-secret"
+	secretEnc, err := Encrypt([]byte(clientSecret))
+	assert.NoError(t, err)
+
 	appReg := &AppRegistration{
 		ID:               uuid.New().String(),
 		ProviderTenantID: providerTenant.ID,
@@ -77,12 +80,6 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 	}
 	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
-	// Encrypt and hash the client secret
-	secretHash := HashSecret(clientSecret)
-	secretEnc, err := Encrypt([]byte(clientSecret))
-	assert.NoError(t, err)
-
-	appReg.ClientSecretHash = string(secretHash)
 	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()

@@ -90,13 +90,6 @@ fi
 echo "Runtime configuration: "
 cat config.json
 
-# Only generate new encryption key if MASTER_ENCRYPTION_KEY is not set
-if [ -z "${MASTER_ENCRYPTION_KEY}" ]; then
-    echo -e "${GREEN}Generating new master encryption key...${NC}"
-    export MASTER_ENCRYPTION_KEY=$(openssl rand -base64 32)
-    echo -e "${YELLOW}New encryption key generated: ${MASTER_ENCRYPTION_KEY}${NC}"
-fi
-
-# Start Gophish with the encryption key
+# Start Gophish
 echo -e "${GREEN}Starting Gophish...${NC}"
 exec ./gophish

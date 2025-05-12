@@ -5,11 +5,40 @@ import (
 	"os"
 	"testing"
 
+	"github.com/gophish/gophish/config"
 	"github.com/gophish/gophish/models"
 	"github.com/stretchr/testify/assert"
 )
 
+func setupTestDB(t *testing.T) (string, func()) {
+	// Setup temporary test directory
+	tmpDir, err := os.MkdirTemp("", "gophish-test-*")
+	assert.NoError(t, err)
+
+	// Initialize database
+	conf := &config.Config{
+		DBName: "sqlite3",
+		DBPath: tmpDir + "/test.db",
+	}
+	err = models.Setup(conf)
+	assert.NoError(t, err)
+
+	// Initialize encryption
+	err = models.InitializeEncryption()
+	assert.NoError(t, err)
+
+	cleanup := func() {
+		os.RemoveAll(tmpDir)
+	}
+
+	return tmpDir, cleanup
+}
+
 func TestBootstrapFlow(t *testing.T) {
+	// Setup test database
+	_, cleanup := setupTestDB(t)
+	defer cleanup()
+
 	// Set up test environment
 	os.Args = []string{
 		"gophish-bootstrap",
@@ -65,6 +94,10 @@ func TestBootstrapFlow(t *testing.T) {
 }
 
 func TestBootstrapPhishingFlow(t *testing.T) {
+	// Setup test database
+	_, cleanup := setupTestDB(t)
+	defer cleanup()
+
 	// Set up test environment for phishing feature
 	os.Args = []string{
 		"gophish-bootstrap",

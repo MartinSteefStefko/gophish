@@ -41,11 +41,9 @@ func TestAppRegistration(t *testing.T) {
 		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
 		clientSecret := "test-secret"
-		secretHash := HashSecret(clientSecret)
 		secretEnc, err := Encrypt([]byte(clientSecret))
 		assert.NoError(t, err)
 
-		appReg.ClientSecretHash = string(secretHash)
 		appReg.ClientSecretEncrypted = string(secretEnc)
 
 		err = appReg.Create()
@@ -79,11 +77,9 @@ func TestAppRegistration(t *testing.T) {
 		}
 
 		clientSecret := "test-secret"
-		secretHash := HashSecret(clientSecret)
 		secretEnc, err := Encrypt([]byte(clientSecret))
 		assert.NoError(t, err)
 
-		appReg.ClientSecretHash = string(secretHash)
 		appReg.ClientSecretEncrypted = string(secretEnc)
 
 		err = appReg.Create()
@@ -91,11 +87,9 @@ func TestAppRegistration(t *testing.T) {
 
 		// Update client secret
 		newClientSecret := "new-test-secret"
-		newSecretHash := HashSecret(newClientSecret)
 		newSecretEnc, err := Encrypt([]byte(newClientSecret))
 		assert.NoError(t, err)
 
-		appReg.ClientSecretHash = string(newSecretHash)
 		appReg.ClientSecretEncrypted = string(newSecretEnc)
 
 		err = appReg.Update()
@@ -104,7 +98,6 @@ func TestAppRegistration(t *testing.T) {
 		// Verify updates
 		found, err := GetAppRegistration(appReg.ID)
 		assert.NoError(t, err)
-		assert.Equal(t, appReg.ClientSecretHash, found.ClientSecretHash)
 		assert.Equal(t, appReg.ClientSecretEncrypted, found.ClientSecretEncrypted)
 
 		// Clean up
@@ -207,11 +200,9 @@ func TestAppRegistration(t *testing.T) {
 		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
 		clientSecret := "test-secret"
-		secretHash := HashSecret(clientSecret)
 		secretEnc, err := Encrypt([]byte(clientSecret))
 		assert.NoError(t, err)
 
-		appReg.ClientSecretHash = string(secretHash)
 		appReg.ClientSecretEncrypted = string(secretEnc)
 
 		err = appReg.Create()

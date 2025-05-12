@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/graphrbac/1.6/graphrbac"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
+	"github.com/google/uuid"
 	"github.com/gophish/gophish/config"
 	"github.com/gophish/gophish/models"
 	"golang.org/x/oauth2"
@@ -169,6 +171,22 @@ func validateServicePrincipal(ctx context.Context, clientID, clientSecret, tenan
 	return nil
 }
 
+// encryptData encrypts data using the master encryption key
+func encryptData(data string) (string, error) {
+	// Initialize encryption if not already done
+	if err := models.InitializeEncryption(); err != nil {
+		return "", fmt.Errorf("failed to initialize encryption: %v", err)
+	}
+
+	// Encrypt the data
+	encrypted, err := models.EncryptToString([]byte(data))
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt data: %v", err)
+	}
+
+	return encrypted, nil
+}
+
 func main() {
 	var (
 		providerType     string
@@ -184,108 +202,111 @@ func main() {
 	)
 
 	// Define command line flags
-	flag.StringVar(&providerType, "provider", "azure", "Provider type (azure)")
-	flag.StringVar(&displayName, "name", "", "Display name for the tenant")
-	flag.StringVar(&providerTenantID, "provider-tenant-id", "", "Provider tenant ID (e.g., Azure tenant GUID)")
-	flag.StringVar(&region, "region", "", "Region for the provider tenant")
-	flag.StringVar(&clientID, "client-id", "", "OAuth2 client ID")
-	flag.StringVar(&clientSecret, "client-secret", "", "OAuth2 client secret")
-	flag.StringVar(&redirectURI, "redirect-uri", "", "OAuth2 redirect URI")
-	flag.StringVar(&feature, "feature", "phishing", "Feature type (phishing, oauth2)")
+	flag.StringVar(&providerType, "provider", getEnvDefault("OAUTH2_PROVIDER_TYPE", "azure"), "Provider type (azure)")
+	flag.StringVar(&displayName, "name", getEnvDefault("OAUTH2_DISPLAY_NAME", ""), "Display name for the tenant")
+	flag.StringVar(&providerTenantID, "provider-tenant-id", getEnvDefault("OAUTH2_TENANT_ID", ""), "Provider tenant ID (e.g., Azure tenant GUID)")
+	flag.StringVar(&region, "region", getEnvDefault("OAUTH2_REGION", ""), "Region for the provider tenant")
+	flag.StringVar(&clientID, "client-id", getEnvDefault("OAUTH2_CLIENT_ID", ""), "OAuth2 client ID")
+	flag.StringVar(&clientSecret, "client-secret", getEnvDefault("OAUTH2_CLIENT_SECRET", ""), "OAuth2 client secret")
+	flag.StringVar(&redirectURI, "redirect-uri", getEnvDefault("OAUTH2_REDIRECT_URI", "http://localhost:3333/oauth2/callback"), "OAuth2 redirect URI")
+	flag.StringVar(&feature, "feature", getEnvDefault("OAUTH2_FEATURE", "phishing"), "Feature type (phishing, oauth2)")
 	flag.BoolVar(&createSP, "create-sp", false, "Create Azure service principal")
 	flag.BoolVar(&validate, "validate", false, "Validate service principal and OAuth2 flow")
 
 	flag.Parse()
 
-	ctx := context.Background()
-
 	// Initialize database connection
 	cfg := &config.Config{
 		DBName:         "sqlite3",
-		DBPath:         "data/gophish.db",
-		MigrationsPath: "db/db_sqlite3/migrations",
+		DBPath:         getEnvDefault("GOPHISH_DB_PATH", "data/gophish.db"),
+		MigrationsPath: getEnvDefault("GOPHISH_MIGRATIONS_PATH", "db/db_sqlite3/migrations"),
 	}
 	if err := models.Setup(cfg); err != nil {
 		log.Fatalf("Failed to setup database: %v", err)
 	}
 
-	// Initialize encryption
-	if err := os.Setenv("MASTER_ENCRYPTION_KEY", "KAl7yFk8/DUwX/+Z1QkWvjoBxI2gFvg5wESelHC+dEE="); err != nil {
-		log.Fatalf("Failed to set encryption key: %v", err)
+	ctx := context.Background()
+
+	// Check if tenant exists
+	tenants, err := models.GetTenants()
+	if err != nil {
+		log.Fatalf("Failed to get tenants: %v", err)
 	}
-	if err := models.InitializeEncryption(); err != nil {
-		log.Fatalf("Failed to initialize encryption: %v", err)
+	tenantCount := len(tenants)
+
+	if tenantCount == 0 {
+		// Create tenant
+		tenant, err := models.CreateTenant(ctx, displayName)
+		if err != nil {
+			log.Fatalf("Failed to create tenant: %v", err)
+		}
+
+		// Create provider tenant
+		providerTenant, err := models.CreateProviderTenant(ctx, tenant.ID, models.ProviderType(providerType), providerTenantID, displayName, region)
+		if err != nil {
+			log.Fatalf("Failed to create provider tenant: %v", err)
+		}
+
+		// Encrypt client secret
+		encryptedSecret, err := encryptData(clientSecret)
+		if err != nil {
+			log.Fatalf("Failed to encrypt client secret: %v", err)
+		}
+
+		// Create app registration
+		appReg := &models.AppRegistration{
+			ID:                  generateUUID(),
+			ProviderTenantID:    providerTenant.ID,
+			ClientID:            clientID,
+			ClientSecretEncrypted: encryptedSecret,
+			RedirectURI:         redirectURI,
+			CreatedAt:           time.Now().UTC(),
+			UpdatedAt:           time.Now().UTC(),
+		}
+		appReg.SetScopes([]string{
+			"openid",
+			"profile",
+			"email",
+			"offline_access",
+			"https://graph.microsoft.com/Mail.Send",
+		})
+		if err := appReg.Create(); err != nil {
+			log.Fatalf("Failed to create app registration: %v", err)
+		}
+
+		log.Printf("Successfully created tenant and related records")
+	} else {
+		log.Printf("Found %d existing tenant(s), skipping initialization", tenantCount)
 	}
 
-	// Create Azure service principal if requested
+	// Handle service principal creation if requested
 	if createSP {
+		ctx := context.Background()
 		sp, secret, err := createAzureServicePrincipal(ctx, displayName)
 		if err != nil {
 			log.Fatalf("Failed to create service principal: %v", err)
 		}
-		
-		// Use the created service principal details
-		clientID = *sp.AppID
-		clientSecret = secret
-		fmt.Printf("Created service principal:\n")
-		fmt.Printf("- App ID (client ID): %s\n", *sp.AppID)
-		fmt.Printf("- Client Secret: %s\n", secret)
+		log.Printf("Created service principal with ID: %s", *sp.ObjectID)
+		log.Printf("Client secret: %s", secret)
+	}
 
-		// Validate if requested
-		if validate {
-			if err := validateServicePrincipal(ctx, clientID, clientSecret, providerTenantID); err != nil {
-				log.Printf("Warning: Validation failed: %v", err)
-			}
+	// Validate setup if requested
+	if validate {
+		ctx := context.Background()
+		if err := validateServicePrincipal(ctx, clientID, clientSecret, providerTenantID); err != nil {
+			log.Fatalf("Validation failed: %v", err)
 		}
 	}
+}
 
-	// Validate required flags
-	if displayName == "" || providerTenantID == "" || clientID == "" || clientSecret == "" || redirectURI == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
+func generateUUID() string {
+	return uuid.New().String()
+}
 
-	// Create a new tenant
-	tenant, err := models.CreateTenant(ctx, displayName)
-	if err != nil {
-		log.Fatalf("Failed to create tenant: %v", err)
+// getEnvDefault gets an environment variable value or returns a default if not set
+func getEnvDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-
-	// Create a provider tenant
-	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, models.ProviderType(providerType), providerTenantID, displayName, region)
-	if err != nil {
-		log.Fatalf("Failed to create provider tenant: %v", err)
-	}
-
-	// Create an app registration
-	scopes := []string{
-		"https://graph.microsoft.com/.default",
-		"offline_access",
-	}
-	if feature == "phishing" {
-		scopes = append(scopes, "https://graph.microsoft.com/Mail.Send")
-	}
-
-	appReg, err := models.CreateAppRegistration(ctx, provTenant.ID, clientID, clientSecret, redirectURI, scopes)
-	if err != nil {
-		log.Fatalf("Failed to create app registration: %v", err)
-	}
-
-	// Enable features based on feature type
-	config := map[string]interface{}{
-		"enabled": true,
-	}
-	if err := models.EnableFeature(ctx, appReg.ID, models.FeatureType(feature), config); err != nil {
-		log.Fatalf("Failed to enable feature: %v", err)
-	}
-
-	fmt.Printf("Successfully created:\n")
-	fmt.Printf("- Tenant: %s (ID: %s)\n", tenant.Name, tenant.ID)
-	fmt.Printf("- Provider Tenant: %s (ID: %s)\n", provTenant.DisplayName, provTenant.ID)
-	fmt.Printf("- App Registration: %s (ID: %s)\n", appReg.ID, appReg.ID)
-	fmt.Printf("- Feature: %s (enabled)\n", feature)
-	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("1. Use these IDs to configure your Gophish instance\n")
-	fmt.Printf("2. Set up the email-oauth2-proxy if using phishing features\n")
-	fmt.Printf("3. Configure your provider's OAuth2 settings (redirect URIs, permissions)\n")
+	return defaultValue
 } 

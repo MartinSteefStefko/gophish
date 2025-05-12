@@ -59,11 +59,9 @@ func setupOAuthTest(t *testing.T) (*httptest.Server, *mux.Router, *models.AppReg
 	appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
 	clientSecret := "test-secret"
-	secretHash := models.HashSecret(clientSecret)
 	secretEnc, err := models.Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = string(secretHash)
 	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
