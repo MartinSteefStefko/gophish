@@ -14,7 +14,7 @@ func TestProviderTenant(t *testing.T) {
 
 	// Create test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -22,7 +22,7 @@ func TestProviderTenant(t *testing.T) {
 
 	t.Run("CreateProviderTenant", func(t *testing.T) {
 		providerTenant := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         tenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "test-tenant-id",
@@ -47,7 +47,7 @@ func TestProviderTenant(t *testing.T) {
 
 	t.Run("UpdateProviderTenant", func(t *testing.T) {
 		providerTenant := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         tenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "test-tenant-id",
@@ -73,7 +73,7 @@ func TestProviderTenant(t *testing.T) {
 
 	t.Run("DeleteProviderTenant", func(t *testing.T) {
 		providerTenant := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         tenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "test-tenant-id",
@@ -95,7 +95,7 @@ func TestProviderTenant(t *testing.T) {
 	t.Run("GetProviderTenantsByTenant", func(t *testing.T) {
 		// Create multiple provider tenants
 		pt1 := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         tenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "test-tenant-id-1",
@@ -105,7 +105,7 @@ func TestProviderTenant(t *testing.T) {
 		assert.NoError(t, err)
 
 		pt2 := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         tenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "test-tenant-id-2",
@@ -115,7 +115,7 @@ func TestProviderTenant(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Get provider tenants by tenant
-		providerTenants, err := GetProviderTenantsByTenantID(tenant.ID)
+		providerTenants, err := GetProviderTenantsByTenant(tenant.ID)
 		assert.NoError(t, err)
 		assert.Len(t, providerTenants, 2)
 
@@ -128,7 +128,7 @@ func TestProviderTenant(t *testing.T) {
 
 	t.Run("InvalidProviderType", func(t *testing.T) {
 		providerTenant := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         tenant.ID,
 			ProviderType:     "invalid",
 			ProviderTenantID: "test-tenant-id",
@@ -147,7 +147,7 @@ func TestCreateProviderTenant(t *testing.T) {
 
 	// Create a parent tenant first
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Parent Tenant",
 	}
 	err := tenant.Create()
@@ -163,7 +163,7 @@ func TestCreateProviderTenant(t *testing.T) {
 		{
 			name: "Valid Azure provider tenant",
 			providerTenant: &ProviderTenant{
-				ID:              uuid.New(),
+				ID:              uuid.New().String(),
 				TenantID:        tenant.ID,
 				ProviderType:    ProviderTypeAzure,
 				ProviderTenantID: "12345678-1234-1234-1234-123456789012",
@@ -175,7 +175,7 @@ func TestCreateProviderTenant(t *testing.T) {
 		{
 			name: "Valid AWS provider tenant",
 			providerTenant: &ProviderTenant{
-				ID:              uuid.New(),
+				ID:              uuid.New().String(),
 				TenantID:        tenant.ID,
 				ProviderType:    ProviderTypeAWS,
 				ProviderTenantID: "123456789012",
@@ -187,7 +187,7 @@ func TestCreateProviderTenant(t *testing.T) {
 		{
 			name: "Missing tenant ID",
 			providerTenant: &ProviderTenant{
-				ID:              uuid.New(),
+				ID:              uuid.New().String(),
 				ProviderType:    ProviderTypeAzure,
 				ProviderTenantID: "12345678-1234-1234-1234-123456789012",
 			},
@@ -197,7 +197,7 @@ func TestCreateProviderTenant(t *testing.T) {
 		{
 			name: "Invalid provider type",
 			providerTenant: &ProviderTenant{
-				ID:              uuid.New(),
+				ID:              uuid.New().String(),
 				TenantID:        tenant.ID,
 				ProviderType:    "invalid",
 				ProviderTenantID: "12345678-1234-1234-1234-123456789012",
@@ -208,7 +208,7 @@ func TestCreateProviderTenant(t *testing.T) {
 		{
 			name: "Missing provider tenant ID",
 			providerTenant: &ProviderTenant{
-				ID:           uuid.New(),
+				ID:           uuid.New().String(),
 				TenantID:     tenant.ID,
 				ProviderType: ProviderTypeAzure,
 			},
@@ -250,7 +250,7 @@ func TestGetProviderTenant(t *testing.T) {
 
 	// Create a parent tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Parent Tenant",
 	}
 	err := tenant.Create()
@@ -258,7 +258,7 @@ func TestGetProviderTenant(t *testing.T) {
 
 	// Create a test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:              uuid.New(),
+		ID:              uuid.New().String(),
 		TenantID:        tenant.ID,
 		ProviderType:    ProviderTypeAzure,
 		ProviderTenantID: "12345678-1234-1234-1234-123456789012",
@@ -270,7 +270,7 @@ func TestGetProviderTenant(t *testing.T) {
 	// Test cases
 	tests := []struct {
 		name        string
-		id          uuid.UUID
+		id          string
 		wantErr     bool
 		errContains string
 	}{
@@ -281,13 +281,13 @@ func TestGetProviderTenant(t *testing.T) {
 		},
 		{
 			name:        "Non-existent provider tenant",
-			id:          uuid.New(),
+			id:          uuid.New().String(),
 			wantErr:     true,
 			errContains: "provider tenant not found",
 		},
 		{
 			name:        "Invalid UUID",
-			id:          uuid.Nil,
+			id:          "",
 			wantErr:     true,
 			errContains: "invalid provider tenant ID",
 		},
@@ -321,7 +321,7 @@ func TestListProviderTenants(t *testing.T) {
 
 	// Create a parent tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Parent Tenant",
 	}
 	err := tenant.Create()
@@ -330,14 +330,14 @@ func TestListProviderTenants(t *testing.T) {
 	// Create test provider tenants
 	providerTenants := []*ProviderTenant{
 		{
-			ID:              uuid.New(),
+			ID:              uuid.New().String(),
 			TenantID:        tenant.ID,
 			ProviderType:    ProviderTypeAzure,
 			ProviderTenantID: "12345678-1234-1234-1234-123456789012",
 			DisplayName:     "Azure Tenant 1",
 		},
 		{
-			ID:              uuid.New(),
+			ID:              uuid.New().String(),
 			TenantID:        tenant.ID,
 			ProviderType:    ProviderTypeAWS,
 			ProviderTenantID: "123456789012",
@@ -356,7 +356,7 @@ func TestListProviderTenants(t *testing.T) {
 	assert.Len(t, found, len(providerTenants))
 
 	// Test listing by tenant ID
-	foundByTenant, err := GetProviderTenantsByTenantID(tenant.ID)
+	foundByTenant, err := GetProviderTenantsByTenant(tenant.ID)
 	assert.NoError(t, err)
 	assert.Len(t, foundByTenant, len(providerTenants))
 
@@ -373,7 +373,7 @@ func TestUpdateProviderTenant(t *testing.T) {
 
 	// Create a parent tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Parent Tenant",
 	}
 	err := tenant.Create()
@@ -381,7 +381,7 @@ func TestUpdateProviderTenant(t *testing.T) {
 
 	// Create a test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:              uuid.New(),
+		ID:              uuid.New().String(),
 		TenantID:        tenant.ID,
 		ProviderType:    ProviderTypeAzure,
 		ProviderTenantID: "12345678-1234-1234-1234-123456789012",
@@ -471,7 +471,7 @@ func TestDeleteProviderTenant(t *testing.T) {
 
 	// Create a parent tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Parent Tenant",
 	}
 	err := tenant.Create()
@@ -479,7 +479,7 @@ func TestDeleteProviderTenant(t *testing.T) {
 
 	// Create a test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:              uuid.New(),
+		ID:              uuid.New().String(),
 		TenantID:        tenant.ID,
 		ProviderType:    ProviderTypeAzure,
 		ProviderTenantID: "12345678-1234-1234-1234-123456789012",

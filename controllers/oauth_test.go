@@ -28,16 +28,15 @@ func setupOAuthTest(t *testing.T) (*httptest.Server, *mux.Router, *models.AppReg
 
 	// Create test tenant
 	tenant := &models.Tenant{
-		ID:        uuid.New(),
-		Name:      "Test Tenant",
-		CreatedAt: time.Now().UTC(),
+		ID:   uuid.New().String(),
+		Name: "Test Tenant",
 	}
 	err := tenant.Create()
 	assert.NoError(t, err)
 
 	// Create test provider tenant
 	providerTenant := &models.ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     models.ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -50,7 +49,7 @@ func setupOAuthTest(t *testing.T) (*httptest.Server, *mux.Router, *models.AppReg
 
 	// Create test app registration
 	appReg := &models.AppRegistration{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		ProviderTenantID: providerTenant.ID,
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
@@ -64,8 +63,8 @@ func setupOAuthTest(t *testing.T) (*httptest.Server, *mux.Router, *models.AppReg
 	secretEnc, err := models.Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = secretHash
-	appReg.ClientSecretEncrypted = secretEnc
+	appReg.ClientSecretHash = string(secretHash)
+	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
 	assert.NoError(t, err)
@@ -148,7 +147,7 @@ func TestOAuth2Callback(t *testing.T) {
 
 	// Override the GetOAuth2Config function for testing
 	originalGetOAuth2Config := models.GetOAuth2Config
-	models.GetOAuth2Config = func(appRegID uuid.UUID) (*oauth2.Config, error) {
+	models.GetOAuth2Config = func(appRegID string) (*oauth2.Config, error) {
 		config, err := originalGetOAuth2Config(appRegID)
 		if err != nil {
 			return nil, err

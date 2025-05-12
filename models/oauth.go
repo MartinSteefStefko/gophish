@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,40 +11,25 @@ import (
 	"golang.org/x/oauth2/microsoft"
 )
 
-// GetAppRegistrations retrieves all app registrations
-func GetAppRegistrations() ([]AppRegistration, error) {
-	var appRegs []AppRegistration
-	if err := db.Find(&appRegs).Error; err != nil {
-		return nil, fmt.Errorf("failed to get app registrations: %v", err)
-	}
-	return appRegs, nil
-}
-
-// GetAppRegistration retrieves an app registration by ID
-func GetAppRegistration(id uuid.UUID) (*AppRegistration, error) {
-	var appReg AppRegistration
-	if err := db.First(&appReg, "id = ?", id).Error; err != nil {
-		return nil, fmt.Errorf("app registration not found: %v", err)
-	}
-	return &appReg, nil
-}
-
 // GetOAuth2Config returns the OAuth2 configuration for a specific app registration
-var GetOAuth2Config = func(appRegID uuid.UUID) (*oauth2.Config, error) {
-	var appReg AppRegistration
-	if err := db.First(&appReg, "id = ?", appRegID).Error; err != nil {
-		return nil, fmt.Errorf("app registration not found: %v", err)
+var GetOAuth2Config = func(appRegID string) (*oauth2.Config, error) {
+	// If no app registration ID is provided, get the default one
+	if appRegID == "" {
+		defaultAppReg, err := GetDefaultAppRegistration()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default app registration: %v", err)
+		}
+		appRegID = defaultAppReg.ID
 	}
 
-	// Decrypt client secret
-	clientSecret, err := Decrypt(appReg.ClientSecretEncrypted)
+	appReg, err := GetAppRegistration(appRegID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt client secret: %v", err)
+		return nil, fmt.Errorf("app registration not found: %v", err)
 	}
 
 	// Get provider tenant info
-	var providerTenant ProviderTenant
-	if err := db.First(&providerTenant, "id = ?", appReg.ProviderTenantID).Error; err != nil {
+	providerTenant, err := GetProviderTenant(appReg.ProviderTenantID)
+	if err != nil {
 		return nil, fmt.Errorf("provider tenant not found: %v", err)
 	}
 
@@ -56,6 +42,12 @@ var GetOAuth2Config = func(appRegID uuid.UUID) (*oauth2.Config, error) {
 		return nil, fmt.Errorf("unsupported provider type: %s", providerTenant.ProviderType)
 	}
 
+	// Decrypt client secret
+	clientSecret, err := Decrypt([]byte(appReg.ClientSecretEncrypted))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt client secret: %v", err)
+	}
+
 	return &oauth2.Config{
 		ClientID:     appReg.ClientID,
 		ClientSecret: string(clientSecret),
@@ -65,66 +57,56 @@ var GetOAuth2Config = func(appRegID uuid.UUID) (*oauth2.Config, error) {
 	}, nil
 }
 
-// OAuth2Token represents the OAuth2 token in the database
-type OAuth2Token struct {
-	Id            int64     `json:"id" gorm:"column:id; primary_key:yes"`
-	UserId        int64     `json:"-" gorm:"column:user_id"`
-	AccessToken   string    `json:"access_token"`
-	RefreshToken  string    `json:"refresh_token"`
-	TokenType     string    `json:"token_type"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	ModifiedDate  time.Time `json:"modified_date"`
-}
-
-// TableName specifies the database table name for OAuth2Token
-func (t OAuth2Token) TableName() string {
-	return "oauth2_tokens"
-}
-
-// SaveOAuth2Token saves or updates the OAuth2 token for a user and app registration
-func SaveOAuth2Token(ctx context.Context, appRegID uuid.UUID, userID int64, token *oauth2.Token) error {
-	// Encrypt tokens
-	accessTokenEnc, err := Encrypt([]byte(token.AccessToken))
+// SaveOAuth2Token saves an OAuth2 token for a user
+func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *oauth2.Token) error {
+	// Check if the app registration exists
+	appReg, err := GetAppRegistration(appRegID)
 	if err != nil {
-		return fmt.Errorf("failed to encrypt access token: %v", err)
+		return fmt.Errorf("failed to get app registration: %v", err)
 	}
 
-	var refreshTokenEnc []byte
-	if token.RefreshToken != "" {
-		refreshTokenEnc, err = Encrypt([]byte(token.RefreshToken))
-		if err != nil {
-			return fmt.Errorf("failed to encrypt refresh token: %v", err)
-		}
+	// Encrypt the token
+	tokenBytes, err := json.Marshal(token)
+	if err != nil {
+		return fmt.Errorf("failed to marshal token: %v", err)
+	}
+	tokenEnc, err := Encrypt(tokenBytes)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt token: %v", err)
 	}
 
+	// Save the token
 	oauthToken := &OAuthToken{
-		AppRegistrationID: appRegID,
+		ID:               uuid.New().String(),
+		AppRegistrationID: appReg.ID,
 		UserID:           userID,
-		AccessToken:      accessTokenEnc,
-		RefreshToken:     refreshTokenEnc,
+		AccessToken:      tokenEnc,
 		TokenType:        token.TokenType,
 		ExpiresAt:        token.Expiry,
+		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
 
-	// Check if token exists
-	var existing OAuthToken
-	if err := db.Where("app_registration_id = ? AND user_id = ?", appRegID, userID).First(&existing).Error; err == nil {
-		oauthToken.ID = existing.ID
-		oauthToken.CreatedAt = existing.CreatedAt
-	} else {
-		oauthToken.ID = uuid.New()
-		oauthToken.CreatedAt = time.Now().UTC()
+	if token.RefreshToken != "" {
+		refreshTokenEnc, err := Encrypt([]byte(token.RefreshToken))
+		if err != nil {
+			return fmt.Errorf("failed to encrypt refresh token: %v", err)
+		}
+		oauthToken.RefreshToken = refreshTokenEnc
 	}
 
-	return db.Save(oauthToken).Error
+	if err := db.Create(oauthToken).Error; err != nil {
+		return fmt.Errorf("failed to save token: %v", err)
+	}
+
+	return nil
 }
 
 // GetUserOAuth2Token retrieves the OAuth2 token for a user and app registration
-func GetUserOAuth2Token(ctx context.Context, appRegID uuid.UUID, userID int64) (*oauth2.Token, error) {
-	var token OAuthToken
-	if err := db.Where("app_registration_id = ? AND user_id = ?", appRegID, userID).First(&token).Error; err != nil {
-		return nil, err
+func GetUserOAuth2Token(ctx context.Context, appRegID string, userID int64) (*oauth2.Token, error) {
+	token, err := GetOAuthTokenByUserAndApp(userID, appRegID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth token: %v", err)
 	}
 
 	// Decrypt tokens
@@ -143,46 +125,16 @@ func GetUserOAuth2Token(ctx context.Context, appRegID uuid.UUID, userID int64) (
 
 	return &oauth2.Token{
 		AccessToken:  string(accessToken),
-		RefreshToken: string(refreshToken),
 		TokenType:    token.TokenType,
+		RefreshToken: string(refreshToken),
 		Expiry:      token.ExpiresAt,
 	}, nil
 }
 
-// CreateAppRegistration creates a new app registration with encrypted client secret
-func CreateAppRegistration(ctx context.Context, providerTenantID uuid.UUID, clientID, clientSecret, redirectURI string, scopes []string) (*AppRegistration, error) {
-	// Hash the client secret for verification
-	secretHash := HashSecret(clientSecret)
-
-	// Encrypt the client secret for use
-	secretEnc, err := Encrypt([]byte(clientSecret))
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt client secret: %v", err)
-	}
-
-	appReg := &AppRegistration{
-		ID:                 uuid.New(),
-		ProviderTenantID:   providerTenantID,
-		ClientID:           clientID,
-		ClientSecretHash:   secretHash,
-		ClientSecretEncrypted: secretEnc,
-		RedirectURI:        redirectURI,
-		CreatedAt:          time.Now().UTC(),
-		UpdatedAt:          time.Now().UTC(),
-	}
-	appReg.SetScopes(scopes)
-
-	if err := db.Create(appReg).Error; err != nil {
-		return nil, fmt.Errorf("failed to create app registration: %v", err)
-	}
-
-	return appReg, nil
-}
-
 // CreateProviderTenant creates a new provider tenant
-func CreateProviderTenant(ctx context.Context, tenantID uuid.UUID, providerType ProviderType, providerTenantID, displayName, region string) (*ProviderTenant, error) {
+func CreateProviderTenant(ctx context.Context, tenantID string, providerType ProviderType, providerTenantID, displayName, region string) (*ProviderTenant, error) {
 	provTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenantID,
 		ProviderType:     providerType,
 		ProviderTenantID: providerTenantID,
@@ -201,7 +153,7 @@ func CreateProviderTenant(ctx context.Context, tenantID uuid.UUID, providerType 
 // CreateTenant creates a new tenant
 func CreateTenant(ctx context.Context, name string) (*Tenant, error) {
 	tenant := &Tenant{
-		ID:        uuid.New(),
+		ID:        uuid.New().String(),
 		Name:      name,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -212,18 +164,3 @@ func CreateTenant(ctx context.Context, name string) (*Tenant, error) {
 
 	return tenant, nil
 }
-
-// EnableFeature enables a feature for an app registration
-func EnableFeature(ctx context.Context, appRegID uuid.UUID, featureType FeatureType, config map[string]interface{}) error {
-	feature := &Feature{
-		ID:               uuid.New(),
-		AppRegistrationID: appRegID,
-		FeatureType:      featureType,
-		Enabled:          true,
-		Config:           config,
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
-	}
-
-	return db.Create(feature).Error
-} 

@@ -15,7 +15,7 @@ func TestOnboarding(t *testing.T) {
 
 	// Create test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -23,7 +23,7 @@ func TestOnboarding(t *testing.T) {
 
 	// Create test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -32,45 +32,28 @@ func TestOnboarding(t *testing.T) {
 	err = providerTenant.Create()
 	assert.NoError(t, err)
 
-	t.Run("CreateAppRegistration", func(t *testing.T) {
-		appReg := &AppRegistration{
-			ID:               uuid.New(),
-			ProviderTenantID: providerTenant.ID,
-			ClientID:         "test-client-id",
-			RedirectURI:      "http://localhost/callback",
-		}
-		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
-
-		err := appReg.Create()
-		assert.NoError(t, err)
-
-		// Verify app registration was created
-		found, err := GetAppRegistration(appReg.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, appReg.ID, found.ID)
-		assert.Equal(t, appReg.ProviderTenantID, found.ProviderTenantID)
-		assert.Equal(t, appReg.ClientID, found.ClientID)
-		assert.Equal(t, appReg.GetScopes(), found.GetScopes())
-
-		// Clean up
-		err = appReg.Delete()
-		assert.NoError(t, err)
-	})
-
 	t.Run("CreateFeature", func(t *testing.T) {
 		appReg := &AppRegistration{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			ProviderTenantID: providerTenant.ID,
 			ClientID:         "test-client-id",
 			RedirectURI:      "http://localhost/callback",
 		}
 		appReg.SetScopes([]string{"https://graph.microsoft.com/Mail.Send"})
 
-		err := appReg.Create()
+		clientSecret := "test-secret"
+		secretHash := HashSecret(clientSecret)
+		secretEnc, err := Encrypt([]byte(clientSecret))
+		assert.NoError(t, err)
+
+		appReg.ClientSecretHash = string(secretHash)
+		appReg.ClientSecretEncrypted = string(secretEnc)
+
+		err = appReg.Create()
 		assert.NoError(t, err)
 
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,

@@ -17,17 +17,24 @@ import (
 func OAuth2Login(w http.ResponseWriter, r *http.Request) {
 	// Get the app registration ID from the session
 	session := ctx.Get(r, "session").(*sessions.Session)
-	appRegID, ok := session.Values["app_reg_id"].(uuid.UUID)
+	appRegID, ok := session.Values["app_reg_id"].(string)
 	if !ok {
 		// Get the default app registration
 		appRegs, err := models.GetAppRegistrations()
-		if err != nil || len(appRegs) == 0 {
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error getting app registrations: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if len(appRegs) == 0 {
 			http.Error(w, "No app registrations found", http.StatusInternalServerError)
 			return
 		}
 		appRegID = appRegs[0].ID
 		session.Values["app_reg_id"] = appRegID
-		session.Save(r, w)
+		if err := session.Save(r, w); err != nil {
+			http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Get the OAuth2 config
@@ -40,7 +47,10 @@ func OAuth2Login(w http.ResponseWriter, r *http.Request) {
 	// Generate a random state
 	state := uuid.New().String()
 	session.Values["oauth2_state"] = state
-	session.Save(r, w)
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	// Redirect to the provider's consent page
 	url := config.AuthCodeURL(state)
@@ -60,7 +70,7 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the app registration ID from the session
-	appRegID, ok := session.Values["app_reg_id"].(uuid.UUID)
+	appRegID, ok := session.Values["app_reg_id"].(string)
 	if !ok {
 		http.Error(w, "No app registration ID found in session", http.StatusBadRequest)
 		return
@@ -98,11 +108,11 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	if next == "" {
 		next = "/"
 	}
-		http.Redirect(w, r, next, http.StatusTemporaryRedirect)
+	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
 }
 
 // RegisterOAuth2Routes registers the OAuth2 routes with the router
 func (as *AdminServer) RegisterOAuth2Routes(router *mux.Router) {
-	router.HandleFunc("/oauth2/login", middleware.Use(OAuth2Login, as.limiter.Limit))
-	router.HandleFunc("/oauth2/callback", middleware.Use(OAuth2Callback, as.limiter.Limit))
+	router.HandleFunc("/oauth2/login", middleware.Use(OAuth2Login, middleware.GetContext, as.limiter.Limit))
+	router.HandleFunc("/oauth2/callback", middleware.Use(OAuth2Callback, middleware.GetContext, as.limiter.Limit))
 } 

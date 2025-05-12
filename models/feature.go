@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,12 +32,12 @@ func (ft FeatureType) IsValid() bool {
 
 // Feature represents a feature enabled for an app registration
 type Feature struct {
-	ID               uuid.UUID                 `gorm:"type:uuid;primary_key"`
-	AppRegistrationID uuid.UUID                 `gorm:"type:uuid;index"`
-	FeatureType      FeatureType              `gorm:"type:string"`
-	Enabled          bool                     `gorm:"default:true"`
-	ConfigJSON       []byte                   `gorm:"column:config;type:jsonb"`
-	Config           map[string]interface{}   `gorm:"-"`
+	ID               string                  `gorm:"type:text;primary_key"`
+	AppRegistrationID string                  `gorm:"type:text;index"`
+	FeatureType      FeatureType            `gorm:"type:text"`
+	Enabled          bool                   `gorm:"default:true"`
+	ConfigJSON       []byte                 `gorm:"column:config;type:jsonb"`
+	Config           map[string]interface{} `gorm:"-"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
@@ -80,10 +81,10 @@ func (f *Feature) AfterFind() error {
 
 // Validate checks if the feature has valid data
 func (f *Feature) Validate() error {
-	if f.ID == uuid.Nil {
+	if f.ID == "" {
 		return fmt.Errorf("feature ID cannot be empty")
 	}
-	if f.AppRegistrationID == uuid.Nil {
+	if f.AppRegistrationID == "" {
 		return fmt.Errorf("app registration ID cannot be empty")
 	}
 	if !f.FeatureType.IsValid() {
@@ -94,8 +95,8 @@ func (f *Feature) Validate() error {
 
 // BeforeCreate will set a UUID rather than numeric ID
 func (f *Feature) BeforeCreate() error {
-	if f.ID == uuid.Nil {
-		f.ID = uuid.New()
+	if f.ID == "" {
+		f.ID = uuid.New().String()
 	}
 	return nil
 }
@@ -138,8 +139,8 @@ func (f *Feature) Delete() error {
 }
 
 // GetFeature retrieves a feature by ID
-func GetFeature(id uuid.UUID) (*Feature, error) {
-	if id == uuid.Nil {
+func GetFeature(id string) (*Feature, error) {
+	if id == "" {
 		return nil, errors.New("invalid feature ID")
 	}
 	
@@ -152,8 +153,8 @@ func GetFeature(id uuid.UUID) (*Feature, error) {
 }
 
 // GetFeaturesByAppRegistration retrieves all features for a given app registration
-func GetFeaturesByAppRegistration(appRegID uuid.UUID) ([]*Feature, error) {
-	if appRegID == uuid.Nil {
+func GetFeaturesByAppRegistration(appRegID string) ([]*Feature, error) {
+	if appRegID == "" {
 		return nil, errors.New("invalid app registration ID")
 	}
 	
@@ -171,4 +172,29 @@ func GetFeaturesByAppRegistration(appRegID uuid.UUID) ([]*Feature, error) {
 		}
 	}
 	return activeFeatures, nil
+}
+
+// EnableFeature enables a feature for an app registration
+func EnableFeature(ctx context.Context, appRegID string, featureType FeatureType, config map[string]interface{}) error {
+	// Check if the app registration exists
+	appReg, err := GetAppRegistration(appRegID)
+	if err != nil {
+		return fmt.Errorf("app registration not found: %v", err)
+	}
+
+	// Create a new feature
+	feature := &Feature{
+		ID:               uuid.New().String(),
+		AppRegistrationID: appReg.ID,
+		FeatureType:      featureType,
+		Enabled:          true,
+		Config:           config,
+	}
+
+	// Save the feature
+	if err := feature.Create(); err != nil {
+		return fmt.Errorf("failed to create feature: %v", err)
+	}
+
+	return nil
 } 

@@ -17,7 +17,7 @@ func TestOAuth2(t *testing.T) {
 
 	// Create test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -25,7 +25,7 @@ func TestOAuth2(t *testing.T) {
 
 	// Create test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -36,7 +36,7 @@ func TestOAuth2(t *testing.T) {
 
 	// Create test app registration
 	appReg := &AppRegistration{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		ProviderTenantID: providerTenant.ID,
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
@@ -48,15 +48,15 @@ func TestOAuth2(t *testing.T) {
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = secretHash
-	appReg.ClientSecretEncrypted = secretEnc
+	appReg.ClientSecretHash = string(secretHash)
+	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
 	assert.NoError(t, err)
 
 	// Create OAuth2 feature
 	feature := &Feature{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		AppRegistrationID: appReg.ID,
 		FeatureType:      FeatureTypeOAuth2,
 		Enabled:          true,

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/csrf"
@@ -50,7 +49,7 @@ func Use(handler http.HandlerFunc, mid ...func(http.Handler) http.HandlerFunc) h
 func init() {
 	gob.Register(&models.User{})
 	gob.Register(&models.Flash{})
-	gob.Register(&models.OAuth2Token{})
+	gob.Register(&oauth2.Token{})
 	Store.Options.HttpOnly = true
 	// This sets the maxAge to 5 days for all cookies
 	Store.MaxAge(86400 * 5)
@@ -148,14 +147,14 @@ func RequireLogin(handler http.Handler) http.HandlerFunc {
 
 			// Check if user has OAuth2 token and it's valid
 			ctx := context.Background()
-			token, err := models.GetUserOAuth2Token(ctx, uuid.Nil, currentUser.Id) // TODO: Get correct app registration ID
+			token, err := models.GetUserOAuth2Token(ctx, "", currentUser.Id) // Empty string will get default app registration
 			if err == nil && !token.Expiry.IsZero() && time.Now().Before(token.Expiry) {
 				handler.ServeHTTP(w, r)
 				return
 			}
 
 			// If OAuth2 is enabled and token is invalid, redirect to OAuth2 login
-			config, err := models.GetOAuth2Config(uuid.Nil) // TODO: Get correct app registration ID
+			config, err := models.GetOAuth2Config("") // Empty string will get default app registration
 			if err == nil && config != nil {
 				q := r.URL.Query()
 				q.Set("next", r.URL.Path)
@@ -236,8 +235,18 @@ func JSONError(w http.ResponseWriter, c int, m string) {
 }
 
 // GetToken retrieves a valid OAuth2 token
-func GetToken(userId int64, appRegID uuid.UUID) (*oauth2.Token, error) {
+func GetToken(userId int64, appRegID string) (*oauth2.Token, error) {
 	ctx := context.Background()
+
+	// If no app registration ID is provided, get the default one
+	if appRegID == "" {
+		defaultAppReg, err := models.GetDefaultAppRegistration()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default app registration: %v", err)
+		}
+		appRegID = defaultAppReg.ID
+	}
+
 	token, err := models.GetUserOAuth2Token(ctx, appRegID, userId)
 	if err != nil {
 		return nil, err

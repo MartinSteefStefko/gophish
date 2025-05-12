@@ -20,7 +20,7 @@ var mockEndpoint oauth2.Endpoint
 type CustomTokenSource struct {
 	config    *oauth2.Config
 	token     *oauth2.Token
-	appRegID  uuid.UUID
+	appRegID  string
 	userID    int64
 }
 
@@ -50,7 +50,7 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 
 	// Create a tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -58,7 +58,7 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 
 	// Create a provider tenant
 	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -70,7 +70,7 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 	// Create an app registration
 	clientSecret := "test-secret"
 	appReg := &AppRegistration{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		ProviderTenantID: providerTenant.ID,
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
@@ -82,8 +82,8 @@ func setupMultiTenantTest(t *testing.T) (*Tenant, *ProviderTenant, *AppRegistrat
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = secretHash
-	appReg.ClientSecretEncrypted = secretEnc
+	appReg.ClientSecretHash = string(secretHash)
+	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
 	assert.NoError(t, err)
@@ -167,13 +167,13 @@ func TestMultiTenantGraphAPIIntegration(t *testing.T) {
 
 	// Override GetOAuth2Config for testing
 	originalGetOAuth2Config := GetOAuth2Config
-	GetOAuth2Config = func(appRegID uuid.UUID) (*oauth2.Config, error) {
+	GetOAuth2Config = func(appRegID string) (*oauth2.Config, error) {
 		appReg, err := GetAppRegistration(appRegID)
 		if err != nil {
 			return nil, err
 		}
 
-		clientSecret, err := Decrypt(appReg.ClientSecretEncrypted)
+		clientSecret, err := Decrypt([]byte(appReg.ClientSecretEncrypted))
 		if err != nil {
 			return nil, err
 		}
@@ -212,12 +212,15 @@ func TestMultiTenantGraphAPIIntegration(t *testing.T) {
 		retrieved, err := GetUserOAuth2Token(context.Background(), appReg.ID, 1)
 		assert.NoError(t, err)
 		assert.Equal(t, token.AccessToken, retrieved.AccessToken)
+		assert.Equal(t, token.TokenType, retrieved.TokenType)
+		assert.Equal(t, token.RefreshToken, retrieved.RefreshToken)
+		assert.WithinDuration(t, token.Expiry, retrieved.Expiry, time.Second)
 	})
 
 	t.Run("Cross_Tenant_Access_Prevention", func(t *testing.T) {
 		// Create another tenant
 		otherTenant := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Other Tenant",
 		}
 		err := otherTenant.Create()
@@ -246,7 +249,8 @@ func TestMultiTenantGraphAPIIntegration(t *testing.T) {
 		}
 
 		// Save tokens
-		err := SaveOAuth2Token(context.Background(), appReg.ID, 1, token1)
+		var err error
+		err = SaveOAuth2Token(context.Background(), appReg.ID, 1, token1)
 		assert.NoError(t, err)
 
 		err = SaveOAuth2Token(context.Background(), appReg.ID, 2, token2)
@@ -310,7 +314,7 @@ func TestGraphMultiTenant(t *testing.T) {
 
 	// Create test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -318,7 +322,7 @@ func TestGraphMultiTenant(t *testing.T) {
 
 	// Create test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -329,7 +333,7 @@ func TestGraphMultiTenant(t *testing.T) {
 
 	t.Run("CreateAppRegistration", func(t *testing.T) {
 		appReg := &AppRegistration{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			ProviderTenantID: providerTenant.ID,
 			ClientID:         "test-client-id",
 			RedirectURI:      "http://localhost/callback",
@@ -355,7 +359,7 @@ func TestGraphMultiTenant(t *testing.T) {
 	t.Run("CrossTenantIsolation", func(t *testing.T) {
 		// Create another tenant
 		otherTenant := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Other Tenant",
 		}
 		err := otherTenant.Create()
@@ -363,7 +367,7 @@ func TestGraphMultiTenant(t *testing.T) {
 
 		// Create another provider tenant
 		otherProviderTenant := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         otherTenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "other-tenant-id",
@@ -374,7 +378,7 @@ func TestGraphMultiTenant(t *testing.T) {
 
 		// Create app registrations for both tenants
 		appReg1 := &AppRegistration{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			ProviderTenantID: providerTenant.ID,
 			ClientID:         "test-client-id-1",
 			RedirectURI:      "http://localhost/callback",
@@ -385,7 +389,7 @@ func TestGraphMultiTenant(t *testing.T) {
 		assert.NoError(t, err)
 
 		appReg2 := &AppRegistration{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			ProviderTenantID: otherProviderTenant.ID,
 			ClientID:         "test-client-id-2",
 			RedirectURI:      "http://localhost/callback",

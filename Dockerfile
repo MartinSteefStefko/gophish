@@ -10,14 +10,14 @@ RUN gulp
 
 
 # Build Golang binary
-FROM golang:1.15.2 AS build-golang
+FROM golang:1.21 AS build-golang
 
 WORKDIR /go/src/github.com/gophish/gophish
 COPY . .
 RUN go get -v && go build -v
 
 # Build goose binary
-RUN go install github.com/pressly/goose/v3/cmd/goose@latest
+RUN go install github.com/pressly/goose/v3/cmd/goose@v3.14.0
 RUN cp /go/bin/goose /go/src/github.com/gophish/gophish/
 
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/services/graphrbac/1.6/graphrbac"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
+	"github.com/gophish/gophish/config"
 	"github.com/gophish/gophish/models"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/microsoft"
@@ -197,6 +198,24 @@ func main() {
 	flag.Parse()
 
 	ctx := context.Background()
+
+	// Initialize database connection
+	cfg := &config.Config{
+		DBName:         "sqlite3",
+		DBPath:         "data/gophish.db",
+		MigrationsPath: "db/db_sqlite3/migrations",
+	}
+	if err := models.Setup(cfg); err != nil {
+		log.Fatalf("Failed to setup database: %v", err)
+	}
+
+	// Initialize encryption
+	if err := os.Setenv("MASTER_ENCRYPTION_KEY", "KAl7yFk8/DUwX/+Z1QkWvjoBxI2gFvg5wESelHC+dEE="); err != nil {
+		log.Fatalf("Failed to set encryption key: %v", err)
+	}
+	if err := models.InitializeEncryption(); err != nil {
+		log.Fatalf("Failed to initialize encryption: %v", err)
+	}
 
 	// Create Azure service principal if requested
 	if createSP {

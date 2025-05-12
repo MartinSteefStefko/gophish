@@ -27,22 +27,30 @@ func (pt ProviderType) IsValid() bool {
 
 // ProviderTenant represents a cloud provider tenant/account linked to a SaaS tenant
 type ProviderTenant struct {
-	ID               uuid.UUID    `json:"id" gorm:"type:uuid;primary_key"`
-	TenantID         uuid.UUID    `json:"tenant_id" gorm:"type:uuid"`
-	ProviderType     ProviderType `json:"provider_type"`
-	ProviderTenantID string       `json:"provider_tenant_id"`
-	DisplayName      string       `json:"display_name"`
-	Region          string       `json:"region"`
-	CreatedAt       time.Time    `json:"created_at"`
-	Tenant          *Tenant      `json:"tenant" gorm:"foreignkey:TenantID"`
+	ID               string       `gorm:"type:text;primary_key"`
+	TenantID         string       `gorm:"type:text;index"`
+	ProviderType     ProviderType `gorm:"type:text"`
+	ProviderTenantID string       `gorm:"type:text"`
+	DisplayName      string       `gorm:"type:text"`
+	Region           string       `json:"region"`
+	CreatedAt        time.Time    `gorm:"type:timestamp"`
+	Tenant           *Tenant      `json:"tenant" gorm:"foreignkey:TenantID"`
+}
+
+// BeforeCreate will set a UUID rather than numeric ID.
+func (pt *ProviderTenant) BeforeCreate() error {
+	if pt.ID == "" {
+		pt.ID = uuid.New().String()
+	}
+	return nil
 }
 
 // Validate checks if the provider tenant has valid data
 func (pt *ProviderTenant) Validate() error {
-	if pt.TenantID == uuid.Nil {
+	if pt.TenantID == "" {
 		return errors.New("tenant ID cannot be empty")
 	}
-	if pt.ID == uuid.Nil {
+	if pt.ID == "" {
 		return errors.New("provider tenant ID cannot be empty")
 	}
 	if !pt.ProviderType.IsValid() {
@@ -88,14 +96,14 @@ func (pt *ProviderTenant) Delete() error {
 
 	err := db.Delete(pt).Error
 	if err != nil {
-		return fmt.Errorf("provider tenant not found: %v", err)
+		return fmt.Errorf("failed to delete provider tenant: %v", err)
 	}
 	return nil
 }
 
 // GetProviderTenant retrieves a provider tenant by ID
-func GetProviderTenant(id uuid.UUID) (*ProviderTenant, error) {
-	if id == uuid.Nil {
+func GetProviderTenant(id string) (*ProviderTenant, error) {
+	if id == "" {
 		return nil, errors.New("invalid provider tenant ID")
 	}
 	
@@ -107,21 +115,24 @@ func GetProviderTenant(id uuid.UUID) (*ProviderTenant, error) {
 	return providerTenant, nil
 }
 
-// GetProviderTenants retrieves all provider tenants
-func GetProviderTenants() ([]*ProviderTenant, error) {
-	var providerTenants []*ProviderTenant
-	err := db.Find(&providerTenants).Error
-	return providerTenants, err
-}
-
-// GetProviderTenantsByTenantID retrieves all provider tenants for a given tenant
-func GetProviderTenantsByTenantID(tenantID uuid.UUID) ([]*ProviderTenant, error) {
-	if tenantID == uuid.Nil {
+// GetProviderTenantsByTenant retrieves all provider tenants for a given tenant
+func GetProviderTenantsByTenant(tenantID string) ([]*ProviderTenant, error) {
+	if tenantID == "" {
 		return nil, errors.New("invalid tenant ID")
 	}
 	
 	var providerTenants []*ProviderTenant
 	err := db.Where("tenant_id = ?", tenantID).Find(&providerTenants).Error
+	if err != nil {
+		return nil, err
+	}
+	return providerTenants, nil
+}
+
+// GetProviderTenants retrieves all provider tenants
+func GetProviderTenants() ([]*ProviderTenant, error) {
+	var providerTenants []*ProviderTenant
+	err := db.Find(&providerTenants).Error
 	return providerTenants, err
 }
 

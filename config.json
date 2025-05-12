@@ -19,10 +19,5 @@
 	"logging": {
 		"filename": "",
 		"level": ""
-	},
-	"oauth2": {
-		"enabled": true,
-		"provider": "microsoft",
-		"redirect_uri": "http://localhost:3333/oauth2/callback"
 	}
 }

@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS app_registrations (
     use_case TEXT NOT NULL,              -- 'phishing', 'dmarc', etc.
     client_id TEXT NOT NULL,
     client_secret_encrypted TEXT NOT NULL, -- encrypted, not plain
+    scopes TEXT,                         -- comma-separated list of scopes
     region TEXT,
     external_id TEXT,                    -- For AWS: role ARN, etc.
     redirect_uri TEXT,
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS features (
     enabled INTEGER NOT NULL DEFAULT 1,   -- SQLite boolean
     config TEXT,                         -- Store as JSON string
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (app_registration_id) REFERENCES app_registrations(id) ON DELETE CASCADE
 );
 

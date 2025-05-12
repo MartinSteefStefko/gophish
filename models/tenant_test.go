@@ -14,7 +14,7 @@ func TestTenant(t *testing.T) {
 
 	t.Run("CreateTenant", func(t *testing.T) {
 		tenant := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Test Tenant",
 		}
 		err := tenant.Create()
@@ -33,7 +33,7 @@ func TestTenant(t *testing.T) {
 
 	t.Run("UpdateTenant", func(t *testing.T) {
 		tenant := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Test Tenant",
 		}
 		err := tenant.Create()
@@ -56,7 +56,7 @@ func TestTenant(t *testing.T) {
 
 	t.Run("DeleteTenant", func(t *testing.T) {
 		tenant := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Test Tenant",
 		}
 		err := tenant.Create()
@@ -75,14 +75,14 @@ func TestTenant(t *testing.T) {
 	t.Run("GetAllTenants", func(t *testing.T) {
 		// Create multiple tenants
 		tenant1 := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Test Tenant 1",
 		}
 		err := tenant1.Create()
 		assert.NoError(t, err)
 
 		tenant2 := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Test Tenant 2",
 		}
 		err = tenant2.Create()
@@ -129,7 +129,7 @@ func TestCreateTenant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tenant := &Tenant{
-				ID:   uuid.New(),
+				ID:   uuid.New().String(),
 				Name: tt.tenantName,
 			}
 
@@ -163,7 +163,7 @@ func TestGetTenant(t *testing.T) {
 
 	// Create a test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -172,7 +172,7 @@ func TestGetTenant(t *testing.T) {
 	// Test cases
 	tests := []struct {
 		name        string
-		tenantID    uuid.UUID
+		tenantID    string
 		wantErr     bool
 		errContains string
 	}{
@@ -183,13 +183,13 @@ func TestGetTenant(t *testing.T) {
 		},
 		{
 			name:        "Non-existent tenant",
-			tenantID:    uuid.New(),
+			tenantID:    uuid.New().String(),
 			wantErr:     true,
 			errContains: "tenant not found",
 		},
 		{
 			name:        "Invalid UUID",
-			tenantID:    uuid.Nil,
+			tenantID:    "",
 			wantErr:     true,
 			errContains: "invalid tenant ID",
 		},
@@ -221,9 +221,9 @@ func TestListTenants(t *testing.T) {
 
 	// Create test tenants
 	tenants := []*Tenant{
-		{ID: uuid.New(), Name: "Tenant 1"},
-		{ID: uuid.New(), Name: "Tenant 2"},
-		{ID: uuid.New(), Name: "Tenant 3"},
+		{ID: uuid.New().String(), Name: "Tenant 1"},
+		{ID: uuid.New().String(), Name: "Tenant 2"},
+		{ID: uuid.New().String(), Name: "Tenant 3"},
 	}
 
 	for _, tenant := range tenants {
@@ -237,7 +237,7 @@ func TestListTenants(t *testing.T) {
 	assert.Len(t, found, len(tenants))
 
 	// Verify all tenants are present
-	tenantMap := make(map[uuid.UUID]bool)
+	tenantMap := make(map[string]bool)
 	for _, tenant := range tenants {
 		tenantMap[tenant.ID] = true
 	}
@@ -254,7 +254,7 @@ func TestUpdateTenant(t *testing.T) {
 
 	// Create a test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Original Name",
 	}
 	err := tenant.Create()
@@ -310,7 +310,7 @@ func TestDeleteTenant(t *testing.T) {
 
 	// Create a test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()

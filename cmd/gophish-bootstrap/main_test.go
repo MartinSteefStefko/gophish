@@ -33,10 +33,10 @@ func TestBootstrapFlow(t *testing.T) {
 	assert.Equal(t, "Test Tenant", tenant.Name)
 
 	// Create provider tenant
-	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, "azure", "test-tenant-id", "Test Tenant", "us-east-1")
+	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, models.ProviderType("azure"), "test-tenant-id", "Test Tenant", "us-east-1")
 	assert.NoError(t, err)
 	assert.NotNil(t, provTenant)
-	assert.Equal(t, "azure", provTenant.ProviderType)
+	assert.Equal(t, "azure", string(provTenant.ProviderType))
 	assert.Equal(t, "test-tenant-id", provTenant.ProviderTenantID)
 
 	// Create app registration
@@ -53,14 +53,14 @@ func TestBootstrapFlow(t *testing.T) {
 	config := map[string]interface{}{
 		"enabled": true,
 	}
-	err = models.EnableFeature(ctx, appReg.ID, "oauth2", config)
+	err = models.EnableFeature(ctx, appReg.ID, models.FeatureType("oauth2"), config)
 	assert.NoError(t, err)
 
 	// Verify feature is enabled
 	features, err := models.GetFeaturesByAppRegistration(appReg.ID)
 	assert.NoError(t, err)
 	assert.Len(t, features, 1)
-	assert.Equal(t, "oauth2", features[0].FeatureType)
+	assert.Equal(t, "oauth2", string(features[0].FeatureType))
 	assert.True(t, features[0].Enabled)
 }
 
@@ -87,7 +87,7 @@ func TestBootstrapPhishingFlow(t *testing.T) {
 	assert.NotNil(t, tenant)
 
 	// Create provider tenant
-	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, "azure", "test-phishing-tenant-id", "Test Phishing Tenant", "us-east-1")
+	provTenant, err := models.CreateProviderTenant(ctx, tenant.ID, models.ProviderType("azure"), "test-phishing-tenant-id", "Test Phishing Tenant", "us-east-1")
 	assert.NoError(t, err)
 	assert.NotNil(t, provTenant)
 
@@ -109,14 +109,14 @@ func TestBootstrapPhishingFlow(t *testing.T) {
 			"port": 587,
 		},
 	}
-	err = models.EnableFeature(ctx, appReg.ID, "phishing", config)
+	err = models.EnableFeature(ctx, appReg.ID, models.FeatureType("phishing"), config)
 	assert.NoError(t, err)
 
 	// Verify feature is enabled with correct config
 	features, err := models.GetFeaturesByAppRegistration(appReg.ID)
 	assert.NoError(t, err)
 	assert.Len(t, features, 1)
-	assert.Equal(t, "phishing", features[0].FeatureType)
+	assert.Equal(t, "phishing", string(features[0].FeatureType))
 	assert.True(t, features[0].Enabled)
 	assert.Contains(t, features[0].Config, "smtp")
 } 

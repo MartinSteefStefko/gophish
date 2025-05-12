@@ -14,14 +14,14 @@ func TestFeatureManagement(t *testing.T) {
 
 	// Create test tenant and provider tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
 	assert.NoError(t, err)
 
 	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -32,7 +32,7 @@ func TestFeatureManagement(t *testing.T) {
 
 	// Create test app registration
 	appReg := &AppRegistration{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		ProviderTenantID: providerTenant.ID,
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
@@ -44,8 +44,8 @@ func TestFeatureManagement(t *testing.T) {
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = secretHash
-	appReg.ClientSecretEncrypted = secretEnc
+	appReg.ClientSecretHash = string(secretHash)
+	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
 	assert.NoError(t, err)
@@ -56,7 +56,7 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("EnableFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -82,7 +82,7 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("DisableFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeEmail,
 			Enabled:          true,
@@ -107,7 +107,7 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("UpdateFeatureConfig", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -143,14 +143,14 @@ func TestFeatureManagement(t *testing.T) {
 
 		// Create another tenant and app registration
 		otherTenant := &Tenant{
-			ID:   uuid.New(),
+			ID:   uuid.New().String(),
 			Name: "Other Tenant",
 		}
 		err := otherTenant.Create()
 		assert.NoError(t, err)
 
 		otherProviderTenant := &ProviderTenant{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			TenantID:         otherTenant.ID,
 			ProviderType:     ProviderTypeAzure,
 			ProviderTenantID: "other-tenant-id",
@@ -160,7 +160,7 @@ func TestFeatureManagement(t *testing.T) {
 		assert.NoError(t, err)
 
 		otherAppReg := &AppRegistration{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			ProviderTenantID: otherProviderTenant.ID,
 			ClientID:         "other-client-id",
 			RedirectURI:      "http://localhost/callback",
@@ -170,7 +170,7 @@ func TestFeatureManagement(t *testing.T) {
 
 		// Create features for both app registrations
 		feature1 := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -179,7 +179,7 @@ func TestFeatureManagement(t *testing.T) {
 		assert.NoError(t, err)
 
 		feature2 := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: otherAppReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -207,7 +207,7 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("InvalidFeatureType", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      "invalid",
 			Enabled:          true,
@@ -219,7 +219,7 @@ func TestFeatureManagement(t *testing.T) {
 
 	t.Run("DeleteFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -245,7 +245,7 @@ func TestFeature(t *testing.T) {
 
 	// Create test tenant
 	tenant := &Tenant{
-		ID:   uuid.New(),
+		ID:   uuid.New().String(),
 		Name: "Test Tenant",
 	}
 	err := tenant.Create()
@@ -253,7 +253,7 @@ func TestFeature(t *testing.T) {
 
 	// Create test provider tenant
 	providerTenant := &ProviderTenant{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     ProviderTypeAzure,
 		ProviderTenantID: "test-tenant-id",
@@ -264,7 +264,7 @@ func TestFeature(t *testing.T) {
 
 	// Create test app registration
 	appReg := &AppRegistration{
-		ID:               uuid.New(),
+		ID:               uuid.New().String(),
 		ProviderTenantID: providerTenant.ID,
 		ClientID:         "test-client-id",
 		RedirectURI:      "http://localhost/callback",
@@ -276,15 +276,15 @@ func TestFeature(t *testing.T) {
 	secretEnc, err := Encrypt([]byte(clientSecret))
 	assert.NoError(t, err)
 
-	appReg.ClientSecretHash = secretHash
-	appReg.ClientSecretEncrypted = secretEnc
+	appReg.ClientSecretHash = string(secretHash)
+	appReg.ClientSecretEncrypted = string(secretEnc)
 
 	err = appReg.Create()
 	assert.NoError(t, err)
 
 	t.Run("CreateFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -314,7 +314,7 @@ func TestFeature(t *testing.T) {
 
 	t.Run("UpdateFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,
@@ -350,7 +350,7 @@ func TestFeature(t *testing.T) {
 
 	t.Run("DeleteFeature", func(t *testing.T) {
 		feature := &Feature{
-			ID:               uuid.New(),
+			ID:               uuid.New().String(),
 			AppRegistrationID: appReg.ID,
 			FeatureType:      FeatureTypeOAuth2,
 			Enabled:          true,

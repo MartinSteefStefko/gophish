@@ -82,6 +82,11 @@ func main() {
 	}
 	config.Version = string(version)
 
+	// Initialize encryption
+	if err := models.InitializeEncryption(); err != nil {
+		log.Fatal(err)
+	}
+
 	// Configure our various upstream clients to make sure that we restrict
 	// outbound connections as needed.
 	dialer.SetAllowedHosts(conf.AdminConf.AllowedInternalHosts)

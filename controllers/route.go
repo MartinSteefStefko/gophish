@@ -145,6 +145,9 @@ func (as *AdminServer) registerRoutes() {
 	)
 	router.PathPrefix("/api/").Handler(api)
 
+	// Register OAuth2 routes
+	as.RegisterOAuth2Routes(router)
+
 	// Setup static file serving
 	router.PathPrefix("/").Handler(http.FileServer(unindexed.Dir("./static/")))
 

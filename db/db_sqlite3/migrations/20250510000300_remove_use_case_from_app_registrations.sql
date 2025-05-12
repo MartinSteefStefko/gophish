@@ -5,22 +5,24 @@ CREATE TABLE app_registrations_new (
     provider_tenant_id TEXT NOT NULL,
     client_id TEXT NOT NULL,
     client_secret_encrypted TEXT NOT NULL,
+    scopes TEXT,
     redirect_uri TEXT,
     region TEXT,
     external_id TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (provider_tenant_id) REFERENCES provider_tenants(id)
 );
 
 INSERT INTO app_registrations_new (
     id, provider_tenant_id, client_id,
-    client_secret_encrypted, redirect_uri,
-    region, external_id, created_at
+    client_secret_encrypted, scopes, redirect_uri,
+    external_id, created_at, updated_at
 )
 SELECT 
     id, provider_tenant_id, client_id,
-    client_secret_encrypted, redirect_uri,
-    region, external_id, created_at
+    client_secret_encrypted, scopes, redirect_uri,
+    NULL, created_at, created_at
 FROM app_registrations;
 
 DROP TABLE app_registrations;
@@ -33,23 +35,25 @@ CREATE TABLE app_registrations_old (
     provider_tenant_id TEXT NOT NULL,
     client_id TEXT NOT NULL,
     client_secret_encrypted TEXT NOT NULL,
+    scopes TEXT,
     redirect_uri TEXT,
     region TEXT,
     external_id TEXT,
     use_case TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (provider_tenant_id) REFERENCES provider_tenants(id)
 );
 
 INSERT INTO app_registrations_old (
     id, provider_tenant_id, client_id,
-    client_secret_encrypted, redirect_uri,
-    region, external_id, use_case, created_at
+    client_secret_encrypted, scopes, redirect_uri,
+    region, external_id, use_case, created_at, updated_at
 )
 SELECT 
     id, provider_tenant_id, client_id,
-    client_secret_encrypted, redirect_uri,
-    region, external_id, NULL, created_at
+    client_secret_encrypted, scopes, redirect_uri,
+    NULL, NULL, NULL, created_at, updated_at
 FROM app_registrations;
 
 DROP TABLE app_registrations;

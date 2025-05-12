@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
 # set config for admin_server
 if [ -n "${ADMIN_LISTEN_URL+set}" ] ; then
     jq -r \
@@ -84,5 +90,13 @@ fi
 echo "Runtime configuration: "
 cat config.json
 
-# start gophish
-./gophish
+# Only generate new encryption key if MASTER_ENCRYPTION_KEY is not set
+if [ -z "${MASTER_ENCRYPTION_KEY}" ]; then
+    echo -e "${GREEN}Generating new master encryption key...${NC}"
+    export MASTER_ENCRYPTION_KEY=$(openssl rand -base64 32)
+    echo -e "${YELLOW}New encryption key generated: ${MASTER_ENCRYPTION_KEY}${NC}"
+fi
+
+# Start Gophish with the encryption key
+echo -e "${GREEN}Starting Gophish...${NC}"
+exec ./gophish
