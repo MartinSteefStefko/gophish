@@ -42,15 +42,12 @@ var GetOAuth2Config = func(appRegID string) (*oauth2.Config, error) {
 		return nil, fmt.Errorf("unsupported provider type: %s", providerTenant.ProviderType)
 	}
 
-	// Decrypt client secret
-	clientSecret, err := Decrypt([]byte(appReg.ClientSecretEncrypted))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt client secret: %v", err)
-	}
+	// TEMPORARY: Skip decryption and use client secret directly
+	clientSecret := appReg.ClientSecretEncrypted
 
 	return &oauth2.Config{
 		ClientID:     appReg.ClientID,
-		ClientSecret: string(clientSecret),
+		ClientSecret: clientSecret,
 		RedirectURL:  appReg.RedirectURI,
 		Scopes:       appReg.GetScopes(),
 		Endpoint:     endpoint,
@@ -65,14 +62,10 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 		return fmt.Errorf("failed to get app registration: %v", err)
 	}
 
-	// Encrypt the token
+	// TEMPORARY: Skip encryption and store token directly
 	tokenBytes, err := json.Marshal(token)
 	if err != nil {
 		return fmt.Errorf("failed to marshal token: %v", err)
-	}
-	tokenEnc, err := Encrypt(tokenBytes)
-	if err != nil {
-		return fmt.Errorf("failed to encrypt token: %v", err)
 	}
 
 	// Save the token
@@ -80,7 +73,7 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 		ID:               uuid.New().String(),
 		AppRegistrationID: appReg.ID,
 		UserID:           userID,
-		AccessToken:      tokenEnc,
+		AccessToken:      tokenBytes,
 		TokenType:        token.TokenType,
 		ExpiresAt:        token.Expiry,
 		CreatedAt:        time.Now().UTC(),
@@ -88,11 +81,7 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 	}
 
 	if token.RefreshToken != "" {
-		refreshTokenEnc, err := Encrypt([]byte(token.RefreshToken))
-		if err != nil {
-			return fmt.Errorf("failed to encrypt refresh token: %v", err)
-		}
-		oauthToken.RefreshToken = refreshTokenEnc
+		oauthToken.RefreshToken = []byte(token.RefreshToken)
 	}
 
 	if err := db.Create(oauthToken).Error; err != nil {
@@ -109,26 +98,14 @@ func GetUserOAuth2Token(ctx context.Context, appRegID string, userID int64) (*oa
 		return nil, fmt.Errorf("failed to get OAuth token: %v", err)
 	}
 
-	// Decrypt tokens
-	accessToken, err := Decrypt(token.AccessToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt access token: %v", err)
+	// TEMPORARY: Skip decryption and use tokens directly
+	var storedToken oauth2.Token
+	if err := json.Unmarshal(token.AccessToken, &storedToken); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal token: %v", err)
 	}
 
-	var refreshToken []byte
-	if len(token.RefreshToken) > 0 {
-		refreshToken, err = Decrypt(token.RefreshToken)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decrypt refresh token: %v", err)
-		}
-	}
-
-	return &oauth2.Token{
-		AccessToken:  string(accessToken),
-		TokenType:    token.TokenType,
-		RefreshToken: string(refreshToken),
-		Expiry:      token.ExpiresAt,
-	}, nil
+	storedToken.RefreshToken = string(token.RefreshToken)
+	return &storedToken, nil
 }
 
 // CreateProviderTenant creates a new provider tenant

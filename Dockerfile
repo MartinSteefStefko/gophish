@@ -17,6 +17,8 @@ COPY . .
 RUN go get -v && go build -v
 
 # Build goose binary
+ENV TMPDIR=/tmp
+RUN mkdir -p $TMPDIR && chmod 777 $TMPDIR
 RUN go install github.com/pressly/goose/v3/cmd/goose@v3.14.0
 RUN cp /go/bin/goose /go/src/github.com/gophish/gophish/
 

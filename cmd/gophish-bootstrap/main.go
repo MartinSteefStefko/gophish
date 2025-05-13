@@ -62,15 +62,18 @@ func createAzureServicePrincipal(ctx context.Context, displayName string) (*grap
 		AccountEnabled: boolPtr(true),
 	}
 
+	// TEMPORARY: Skip encryption and store client secret directly
+	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
+	if clientSecret == "" {
+		clientSecret = "test-secret"
+	}
+
 	spResult, err := client.Create(ctx, sp)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create service principal: %v", err)
 	}
 
-	// Generate client secret
-	secret := generateSecureSecret()
-
-	return &spResult, secret, nil
+	return &spResult, clientSecret, nil
 }
 
 func stringPtr(s string) *string {

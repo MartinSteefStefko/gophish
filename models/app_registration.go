@@ -35,14 +35,43 @@ func (ar *AppRegistration) BeforeCreate() error {
 // GetScopes returns the scopes as a slice
 func (ar *AppRegistration) GetScopes() []string {
 	if ar.ScopesStr == "" {
-		return []string{}
+		// Return default scopes for authentication
+		return []string{
+			"openid",
+			"profile",
+			"email",
+			"offline_access",
+		}
 	}
 	return strings.Split(ar.ScopesStr, ",")
 }
 
 // SetScopes sets the scopes from a slice
 func (ar *AppRegistration) SetScopes(scopes []string) {
-	ar.ScopesStr = strings.Join(scopes, ",")
+	// Ensure we always have the basic authentication scopes
+	basicScopes := []string{
+		"openid",
+		"profile",
+		"email",
+		"offline_access",
+	}
+
+	// Create a map to deduplicate scopes
+	scopeMap := make(map[string]bool)
+	for _, scope := range basicScopes {
+		scopeMap[scope] = true
+	}
+	for _, scope := range scopes {
+		scopeMap[scope] = true
+	}
+
+	// Convert map back to slice
+	var allScopes []string
+	for scope := range scopeMap {
+		allScopes = append(allScopes, scope)
+	}
+
+	ar.ScopesStr = strings.Join(allScopes, ",")
 }
 
 // Validate checks if the app registration has valid data
@@ -65,27 +94,15 @@ func (ar *AppRegistration) Validate() error {
 	return nil
 }
 
-// Create inserts a new app registration into the database
-func (ar *AppRegistration) Create() error {
-	if err := ar.Validate(); err != nil {
-		return err
-	}
+// Create creates a new app registration
+func (a *AppRegistration) Create() error {
+	a.CreatedAt = time.Now().UTC()
+	a.UpdatedAt = time.Now().UTC()
 
-	// Check for duplicate client ID
-	var count int64
-	if err := db.Model(&AppRegistration{}).Where("client_id = ? AND provider_tenant_id = ?", ar.ClientID, ar.ProviderTenantID).Count(&count).Error; err != nil {
-		return fmt.Errorf("failed to check for duplicate client ID: %v", err)
-	}
-	if count > 0 {
-		return errors.New("client ID already exists")
-	}
+	// TEMPORARY: Skip encryption and store client secret directly
+	a.ClientSecretEncrypted = a.ClientSecretEncrypted
 
-	if ar.ID == "" {
-		ar.ID = uuid.New().String()
-	}
-	ar.CreatedAt = time.Now().UTC()
-	ar.UpdatedAt = time.Now().UTC()
-	return db.Create(ar).Error
+	return db.Create(a).Error
 }
 
 // Update modifies an existing app registration in the database

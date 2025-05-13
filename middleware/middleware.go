@@ -145,26 +145,12 @@ func RequireLogin(handler http.Handler) http.HandlerFunc {
 				return
 			}
 
-			// Check if user has OAuth2 token and it's valid
-			ctx := context.Background()
-			token, err := models.GetUserOAuth2Token(ctx, "", currentUser.Id) // Empty string will get default app registration
-			if err == nil && !token.Expiry.IsZero() && time.Now().Before(token.Expiry) {
-				handler.ServeHTTP(w, r)
-				return
-			}
-
-			// If OAuth2 is enabled and token is invalid, redirect to OAuth2 login
-			config, err := models.GetOAuth2Config("") // Empty string will get default app registration
-			if err == nil && config != nil {
-				q := r.URL.Query()
-				q.Set("next", r.URL.Path)
-				http.Redirect(w, r, fmt.Sprintf("/oauth2/login?%s", q.Encode()), http.StatusTemporaryRedirect)
-				return
-			}
-
+			// User is authenticated, proceed with the request
 			handler.ServeHTTP(w, r)
 			return
 		}
+
+		// User is not authenticated, redirect to login page
 		q := r.URL.Query()
 		q.Set("next", r.URL.Path)
 		http.Redirect(w, r, fmt.Sprintf("/login?%s", q.Encode()), http.StatusTemporaryRedirect)

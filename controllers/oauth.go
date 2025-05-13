@@ -2,51 +2,61 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/google/uuid"
+	"github.com/gophish/gophish/auth"
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/middleware"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/microsoft"
 )
 
 // OAuth2Login initiates the OAuth2 login flow
 func OAuth2Login(w http.ResponseWriter, r *http.Request) {
-	// Get the app registration ID from the session
+	// Get the session
 	session := ctx.Get(r, "session").(*sessions.Session)
-	appRegID, ok := session.Values["app_reg_id"].(string)
-	if !ok {
-		// Get the default app registration
-		appRegs, err := models.GetAppRegistrations()
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Error getting app registrations: %v", err), http.StatusInternalServerError)
-			return
-		}
-		if len(appRegs) == 0 {
-			http.Error(w, "No app registrations found", http.StatusInternalServerError)
-			return
-		}
-		appRegID = appRegs[0].ID
-		session.Values["app_reg_id"] = appRegID
-		if err := session.Save(r, w); err != nil {
-			http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
-			return
-		}
+
+	// If user is already logged in, redirect to home
+	if u := ctx.Get(r, "user"); u != nil {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+		return
 	}
 
-	// Get the OAuth2 config
-	config, err := models.GetOAuth2Config(appRegID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting OAuth2 config: %v", err), http.StatusInternalServerError)
+	// Get OAuth2 config from environment variables
+	tenantID := os.Getenv("OAUTH2_TENANT_ID")
+	redirectURI := os.Getenv("OAUTH2_REDIRECT_URI")
+	clientID := os.Getenv("OAUTH2_CLIENT_ID")
+	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
+	if tenantID == "" || redirectURI == "" || clientID == "" || clientSecret == "" {
+		http.Error(w, "Missing OAuth2 configuration", http.StatusInternalServerError)
 		return
+	}
+
+	// Create OAuth2 config with only basic scopes needed for authentication
+	config := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURI,
+		Endpoint:     microsoft.AzureADEndpoint(tenantID),
+		Scopes: []string{
+			"openid",
+			"profile",
+			"email",
+			"offline_access",
+		},
 	}
 
 	// Generate a random state
 	state := uuid.New().String()
 	session.Values["oauth2_state"] = state
+	session.Values["auth_method"] = "oauth2" // Mark this as an OAuth2 login
 	if err := session.Save(r, w); err != nil {
 		http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
 		return
@@ -62,6 +72,13 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	// Get the session
 	session := ctx.Get(r, "session").(*sessions.Session)
 
+	// Verify this is an OAuth2 login flow
+	authMethod, ok := session.Values["auth_method"].(string)
+	if !ok || authMethod != "oauth2" {
+		http.Error(w, "Invalid authentication flow", http.StatusBadRequest)
+		return
+	}
+
 	// Verify state
 	state := r.URL.Query().Get("state")
 	if state != session.Values["oauth2_state"] {
@@ -69,18 +86,28 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the app registration ID from the session
-	appRegID, ok := session.Values["app_reg_id"].(string)
-	if !ok {
-		http.Error(w, "No app registration ID found in session", http.StatusBadRequest)
+	// Get OAuth2 config using environment variables
+	tenantID := os.Getenv("OAUTH2_TENANT_ID")
+	redirectURI := os.Getenv("OAUTH2_REDIRECT_URI")
+	clientID := os.Getenv("OAUTH2_CLIENT_ID")
+	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
+	if tenantID == "" || redirectURI == "" || clientID == "" || clientSecret == "" {
+		http.Error(w, "Missing OAuth2 configuration", http.StatusInternalServerError)
 		return
 	}
 
-	// Get the OAuth2 config
-	config, err := models.GetOAuth2Config(appRegID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting OAuth2 config: %v", err), http.StatusInternalServerError)
-		return
+	// Create OAuth2 config with only basic scopes needed for authentication
+	config := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURI,
+		Endpoint:     microsoft.AzureADEndpoint(tenantID),
+		Scopes: []string{
+			"openid",
+			"profile",
+			"email",
+			"offline_access",
+		},
 	}
 
 	// Exchange the code for a token
@@ -91,16 +118,62 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save the token
-	userID := ctx.Get(r, "user_id").(int64)
-	err = models.SaveOAuth2Token(context.Background(), appRegID, userID, token)
+	// Get Microsoft Graph client
+	client := oauth2.NewClient(context.Background(), config.TokenSource(context.Background(), token))
+	graphClient := &http.Client{Transport: client.Transport}
+
+	// Get user info from Microsoft Graph
+	resp, err := graphClient.Get("https://graph.microsoft.com/v1.0/me")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error saving token: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error getting user info: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	var userInfo struct {
+		DisplayName string `json:"displayName"`
+		Mail        string `json:"mail"`
+		ID          string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		http.Error(w, fmt.Sprintf("Error decoding user info: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Clear the state from the session
+	// Get the user role
+	role, err := models.GetRoleBySlug(models.RoleUser)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error getting user role: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Create or get existing user
+	user := &models.User{
+		Username:               userInfo.Mail, // Use email as username
+		Role:                   role,
+		RoleID:                role.ID,
+		PasswordChangeRequired: false,
+		ApiKey:                auth.GenerateSecureKey(auth.APIKeyLength),
+	}
+
+	// Try to get existing user first
+	existingUser, err := models.GetUserByUsername(user.Username)
+	if err == nil {
+		// User exists, use existing user
+		user = &existingUser
+	} else {
+		// Create new user
+		err = models.PutUser(user)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error creating user: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Set up the user session
+	session.Values["id"] = user.Id
 	delete(session.Values, "oauth2_state")
+	delete(session.Values, "auth_method")
 	session.Save(r, w)
 
 	// Redirect to the next URL or home
