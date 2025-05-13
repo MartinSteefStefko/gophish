@@ -5,21 +5,13 @@ import (
 	"os"
 
 	"github.com/gophish/gophish/models"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Load .env file from the root directory
-	err := godotenv.Load("../../.env")
-	if err != nil {
-		fmt.Printf("Error loading .env file: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Get the master encryption key from environment
 	masterKey := os.Getenv("MASTER_ENCRYPTION_KEY")
 	if masterKey == "" {
-		fmt.Printf("MASTER_ENCRYPTION_KEY not found in .env file\n")
+		fmt.Printf("MASTER_ENCRYPTION_KEY not found in environment\n")
 		os.Exit(1)
 	}
 
@@ -35,7 +27,7 @@ func main() {
 	// Get client secret from environment
 	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
 	if clientSecret == "" {
-		fmt.Printf("OAUTH2_CLIENT_SECRET not found in .env file\n")
+		fmt.Printf("OAUTH2_CLIENT_SECRET not found in environment\n")
 		os.Exit(1)
 	}
 
