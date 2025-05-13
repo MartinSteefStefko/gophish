@@ -13,12 +13,15 @@ type OAuthToken struct {
 	ID               string    `gorm:"type:text;primary_key"`
 	AppRegistrationID string    `gorm:"type:text;index"`
 	UserID           int64     `gorm:"index"` // Reference to Gophish user
-	AccessToken      []byte    `gorm:"type:bytea"` // Encrypted
-	RefreshToken     []byte    `gorm:"type:bytea"` // Encrypted
-	TokenType        string    `gorm:"type:text"`
+	TokenEncrypted   string    `gorm:"type:text"` // Encrypted token JSON
 	ExpiresAt        time.Time `gorm:"type:timestamp"`
-	CreatedAt        time.Time `gorm:"type:timestamp"`
-	UpdatedAt        time.Time `gorm:"type:timestamp"`
+	CreatedAt        time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
+	UpdatedAt        time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
+}
+
+// TableName specifies the table name for the OAuthToken model
+func (OAuthToken) TableName() string {
+	return "oauth2_tokens"
 }
 
 // BeforeCreate will set a UUID rather than numeric ID.
@@ -40,8 +43,8 @@ func (t *OAuthToken) Validate() error {
 	if t.UserID == 0 {
 		return errors.New("user ID cannot be empty")
 	}
-	if len(t.AccessToken) == 0 {
-		return errors.New("access token cannot be empty")
+	if len(t.TokenEncrypted) == 0 {
+		return errors.New("token cannot be empty")
 	}
 	return nil
 }

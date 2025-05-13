@@ -73,15 +73,10 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 		ID:               uuid.New().String(),
 		AppRegistrationID: appReg.ID,
 		UserID:           userID,
-		AccessToken:      tokenBytes,
-		TokenType:        token.TokenType,
+		TokenEncrypted:   string(tokenBytes),
 		ExpiresAt:        token.Expiry,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
-	}
-
-	if token.RefreshToken != "" {
-		oauthToken.RefreshToken = []byte(token.RefreshToken)
 	}
 
 	if err := db.Create(oauthToken).Error; err != nil {
@@ -98,13 +93,12 @@ func GetUserOAuth2Token(ctx context.Context, appRegID string, userID int64) (*oa
 		return nil, fmt.Errorf("failed to get OAuth token: %v", err)
 	}
 
-	// TEMPORARY: Skip decryption and use tokens directly
+	// TEMPORARY: Skip decryption and use token directly
 	var storedToken oauth2.Token
-	if err := json.Unmarshal(token.AccessToken, &storedToken); err != nil {
+	if err := json.Unmarshal([]byte(token.TokenEncrypted), &storedToken); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal token: %v", err)
 	}
 
-	storedToken.RefreshToken = string(token.RefreshToken)
 	return &storedToken, nil
 }
 

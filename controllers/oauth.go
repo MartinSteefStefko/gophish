@@ -174,12 +174,18 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	session.Values["id"] = user.Id
 	delete(session.Values, "oauth2_state")
 	delete(session.Values, "auth_method")
-	session.Save(r, w)
 
 	// Redirect to the next URL or home
-	next := session.Values["next"].(string)
-	if next == "" {
-		next = "/"
+	next := "/"
+	if nextURL, ok := session.Values["next"]; ok && nextURL != nil {
+		if nextStr, ok := nextURL.(string); ok && nextStr != "" {
+			next = nextStr
+		}
+	}
+	delete(session.Values, "next")
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, fmt.Sprintf("Error saving session: %v", err), http.StatusInternalServerError)
+		return
 	}
 	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
 }
