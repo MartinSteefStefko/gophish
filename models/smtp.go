@@ -3,6 +3,7 @@ package models
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net/mail"
 	"os"
 	"regexp"
@@ -43,6 +44,12 @@ type SMTP struct {
 	IgnoreCertErrors bool      `json:"ignore_cert_errors"`
 	Headers          []Header  `json:"headers"`
 	ModifiedDate     time.Time `json:"modified_date"`
+	// Graph API fields - reference to app_registration
+	AppRegistrationID string    `json:"app_registration_id" gorm:"column:app_registration_id"`
+	// Temporary fields for Graph API registration - not stored in database
+	TenantID     string `json:"tenant_id,omitempty" gorm:"-"`
+	ClientID     string `json:"client_id,omitempty" gorm:"-"`
+	ClientSecret string `json:"client_secret,omitempty" gorm:"-"`
 }
 
 // Header contains the fields and methods for a sending profile to have
@@ -76,18 +83,76 @@ func (s SMTP) TableName() string {
 
 // Validate ensures that SMTP configs/connections are valid
 func (s *SMTP) Validate() error {
-	switch {
-	case s.FromAddress == "":
+	// Debug logging
+	log.Infof("Validating SMTP profile - Interface: %s, Host: %s, FromAddress: %s", 
+		s.Interface, s.Host, s.FromAddress)
+
+	// Always check for From Address
+	if s.FromAddress == "" {
 		return ErrFromAddressNotSpecified
-	case s.Host == "":
+	}
+
+	// For Graph API interface, validate app registration
+	if s.Interface == "GRAPH" {
+		// Create a new app registration if one is not specified
+		if s.AppRegistrationID == "" {
+			// Create a new app registration
+			appReg := &AppRegistration{
+				ProviderTenantID:      s.TenantID,
+				ClientID:              s.ClientID,
+				ClientSecretEncrypted: s.ClientSecret,
+				RedirectURI:           "https://localhost:3333",
+			}
+			
+			// Set default Graph API scopes
+			appReg.SetScopes([]string{
+				"https://graph.microsoft.com/Mail.Send",
+				"https://graph.microsoft.com/Mail.Send.Shared",
+			})
+			
+			// Create the app registration
+			err := appReg.Create()
+			if err != nil {
+				return fmt.Errorf("failed to create app registration: %v", err)
+			}
+			
+			// Set the app registration ID in the SMTP profile
+			s.AppRegistrationID = appReg.ID
+		}
+		
+		// Get and validate the app registration
+		appReg, err := GetAppRegistration(s.AppRegistrationID)
+		if err != nil {
+			return fmt.Errorf("Invalid App Registration: %v", err)
+		}
+		
+		// Create a GraphAPI instance with the app registration details
+		g := GraphAPI{
+			FromAddress:   s.FromAddress,
+			ClientID:      appReg.ClientID,
+			ClientSecret:  appReg.ClientSecretEncrypted,
+			TenantID:     appReg.ProviderTenantID,
+			InterfaceType: s.Interface,
+		}
+		// Delegate to GraphAPI's validation
+		return g.Validate()
+	}
+
+	log.Infof("Using SMTP validation for profile")
+	// SMTP-specific validation
+	if s.Host == "" {
 		return ErrHostNotSpecified
-	case !validateFromAddress(s.FromAddress):
+	}
+	
+	if !validateFromAddress(s.FromAddress) {
 		return ErrInvalidFromAddress
 	}
+	
 	_, err := mail.ParseAddress(s.FromAddress)
 	if err != nil {
 		return err
 	}
+	
 	// Make sure addr is in host:port format
 	hp := strings.Split(s.Host, ":")
 	if len(hp) > 2 {
@@ -110,7 +175,25 @@ func validateFromAddress(email string) bool {
 
 // GetDialer returns a dialer for the given SMTP profile
 func (s *SMTP) GetDialer() (mailer.Dialer, error) {
-	// Setup the message and dial
+	// For Graph API interface, use GraphAPI's GetDialer method
+	if s.Interface == "GRAPH" {
+		// Get the app registration
+		appReg, err := GetAppRegistration(s.AppRegistrationID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get app registration: %v", err)
+		}
+		
+		g := GraphAPI{
+			FromAddress:   s.FromAddress,
+			ClientID:      appReg.ClientID,
+			ClientSecret:  appReg.ClientSecretEncrypted,
+			TenantID:      appReg.ProviderTenantID,
+			InterfaceType: s.Interface,
+		}
+		return g.GetDialer()
+	}
+
+	// For standard SMTP interface
 	hp := strings.Split(s.Host, ":")
 	if len(hp) < 2 {
 		hp = append(hp, "25")

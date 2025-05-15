@@ -108,6 +108,24 @@ func setupMockMultiTenantGraphAPI() *httptest.Server {
 			return
 		}
 
+		// Handle client credentials grant
+		if r.Form.Get("grant_type") == "client_credentials" {
+			resp := struct {
+				AccessToken  string `json:"access_token"`
+				TokenType   string `json:"token_type"`
+				ExpiresIn   int    `json:"expires_in"`
+				RefreshToken string `json:"refresh_token"`
+			}{
+				AccessToken:  "test_token_user1",
+				TokenType:   "Bearer",
+				ExpiresIn:   3600,
+				RefreshToken: "test_refresh_token",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+			return
+		}
+
 		// Handle refresh token request
 		if r.Form.Get("grant_type") == "refresh_token" {
 			refreshToken := r.Form.Get("refresh_token")
@@ -133,20 +151,7 @@ func setupMockMultiTenantGraphAPI() *httptest.Server {
 			return
 		}
 
-		// Handle initial token request
-		resp := struct {
-			AccessToken  string `json:"access_token"`
-			TokenType   string `json:"token_type"`
-			ExpiresIn   int    `json:"expires_in"`
-			RefreshToken string `json:"refresh_token"`
-		}{
-			AccessToken:  "test_access_token",
-			TokenType:   "Bearer",
-			ExpiresIn:   3600,
-			RefreshToken: "test_refresh_token",
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		w.WriteHeader(http.StatusBadRequest)
 	}))
 }
 
@@ -234,7 +239,7 @@ func TestMultiTenantGraphAPIIntegration(t *testing.T) {
 		token1 := &oauth2.Token{
 			AccessToken:  "test_token_user1",
 			TokenType:    "Bearer",
-			RefreshToken: "test_refresh_token_1",
+			RefreshToken: "test_refresh_token",
 			Expiry:      time.Now().Add(time.Hour),
 		}
 
