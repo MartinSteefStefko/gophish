@@ -8,10 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// OAuthToken represents an OAuth token for a specific app registration
+// OAuthToken represents an OAuth token for a specific provider tenant
 type OAuthToken struct {
 	ID               string    `gorm:"type:text;primary_key"`
-	AppRegistrationID string    `gorm:"type:text;index"`
+	ProviderTenantID string    `gorm:"type:text;index"`
 	UserID           int64     `gorm:"index"` // Reference to Gophish user
 	TokenEncrypted   string    `gorm:"type:text"` // Encrypted token JSON
 	ExpiresAt        time.Time `gorm:"type:timestamp"`
@@ -37,8 +37,8 @@ func (t *OAuthToken) Validate() error {
 	if t.ID == "" {
 		return errors.New("token ID cannot be empty")
 	}
-	if t.AppRegistrationID == "" {
-		return errors.New("app registration ID cannot be empty")
+	if t.ProviderTenantID == "" {
+		return errors.New("provider tenant ID cannot be empty")
 	}
 	if t.UserID == 0 {
 		return errors.New("user ID cannot be empty")
@@ -103,31 +103,31 @@ func GetOAuthToken(id string) (*OAuthToken, error) {
 	return token, nil
 }
 
-// GetOAuthTokensByAppRegistration retrieves all OAuth tokens for a given app registration
-func GetOAuthTokensByAppRegistration(appRegID string) ([]*OAuthToken, error) {
-	if appRegID == "" {
-		return nil, errors.New("invalid app registration ID")
+// GetOAuthTokensByProviderTenant retrieves all OAuth tokens for a given provider tenant
+func GetOAuthTokensByProviderTenant(providerTenantID string) ([]*OAuthToken, error) {
+	if providerTenantID == "" {
+		return nil, errors.New("invalid provider tenant ID")
 	}
 	
 	var tokens []*OAuthToken
-	err := db.Where("app_registration_id = ?", appRegID).Find(&tokens).Error
+	err := db.Where("provider_tenant_id = ?", providerTenantID).Find(&tokens).Error
 	if err != nil {
 		return nil, err
 	}
 	return tokens, nil
 }
 
-// GetOAuthTokenByUserAndApp retrieves an OAuth token for a specific user and app registration
-func GetOAuthTokenByUserAndApp(userID int64, appRegID string) (*OAuthToken, error) {
+// GetOAuthTokenByUserAndProviderTenant retrieves an OAuth token for a specific user and provider tenant
+func GetOAuthTokenByUserAndProviderTenant(userID int64, providerTenantID string) (*OAuthToken, error) {
 	if userID == 0 {
 		return nil, errors.New("invalid user ID")
 	}
-	if appRegID == "" {
-		return nil, errors.New("invalid app registration ID")
+	if providerTenantID == "" {
+		return nil, errors.New("invalid provider tenant ID")
 	}
 	
 	token := &OAuthToken{}
-	err := db.Where("user_id = ? AND app_registration_id = ?", userID, appRegID).First(token).Error
+	err := db.Where("user_id = ? AND provider_tenant_id = ?", userID, providerTenantID).First(token).Error
 	if err != nil {
 		return nil, fmt.Errorf("OAuth token not found: %v", err)
 	}

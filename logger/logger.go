@@ -10,7 +10,7 @@ import (
 
 // Logger is the main logger that is abstracted in this package.
 // It is exported here for use with gorm.
-var Logger *logrus.Logger
+var Logger = logrus.New()
 
 // ErrInvalidLevel is returned when an invalid log level is given in the config
 var ErrInvalidLevel = errors.New("invalid log level")
@@ -22,8 +22,17 @@ type Config struct {
 }
 
 func init() {
-	Logger = logrus.New()
-	Logger.Formatter = &logrus.TextFormatter{DisableColors: true}
+	// Set logger output to stdout
+	Logger.SetOutput(os.Stdout)
+	
+	// Set debug level
+	Logger.SetLevel(logrus.DebugLevel)
+	
+	// Set formatter to show all fields
+	Logger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+		DisableColors: false,
+	})
 }
 
 // Setup configures the logger based on options in the config.json.
@@ -56,7 +65,7 @@ func Debug(args ...interface{}) {
 	Logger.Debug(args...)
 }
 
-// Debugf logs a formatted debug messsage
+// Debugf logs a formatted debug message
 func Debugf(format string, args ...interface{}) {
 	Logger.Debugf(format, args...)
 }

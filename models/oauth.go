@@ -71,7 +71,7 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 	// Save the token
 	oauthToken := &OAuthToken{
 		ID:               uuid.New().String(),
-		AppRegistrationID: appReg.ID,
+		ProviderTenantID: appReg.ProviderTenantID,
 		UserID:           userID,
 		TokenEncrypted:   string(tokenBytes),
 		ExpiresAt:        token.Expiry,
@@ -88,7 +88,14 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 
 // GetUserOAuth2Token retrieves the OAuth2 token for a user and app registration
 func GetUserOAuth2Token(ctx context.Context, appRegID string, userID int64) (*oauth2.Token, error) {
-	token, err := GetOAuthTokenByUserAndApp(userID, appRegID)
+	// Get the app registration to find its provider tenant
+	appReg, err := GetAppRegistration(appRegID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get app registration: %v", err)
+	}
+
+	// Get the token using provider tenant ID
+	token, err := GetOAuthTokenByUserAndProviderTenant(userID, appReg.ProviderTenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth token: %v", err)
 	}

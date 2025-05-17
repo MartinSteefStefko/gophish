@@ -8,6 +8,10 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	DefaultSystemTenantName = "0sysuser"
+)
+
 // Tenant represents a top-level organization in the multi-tenant model
 type Tenant struct {
 	ID        string    `gorm:"type:text;primary_key"`
@@ -91,4 +95,11 @@ func GetTenants() ([]*Tenant, error) {
     var tenants []*Tenant
     err := db.Find(&tenants).Error
     return tenants, err
+}
+
+// GetTenantByName returns a tenant by its name
+func GetTenantByName(name string) (Tenant, error) {
+	t := Tenant{}
+	err := db.Where("name = ?", name).First(&t).Error
+	return t, err
 } 

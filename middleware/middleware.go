@@ -10,10 +10,12 @@ import (
 	"time"
 
 	ctx "github.com/gophish/gophish/context"
+	log "github.com/gophish/gophish/logger"
 	"github.com/gophish/gophish/models"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
@@ -53,6 +55,8 @@ func init() {
 	Store.Options.HttpOnly = true
 	// This sets the maxAge to 5 days for all cookies
 	Store.MaxAge(86400 * 5)
+	// Set logger to debug level
+	log.Logger.SetLevel(logrus.DebugLevel)
 }
 
 // Store contains the session information for the request
@@ -77,14 +81,35 @@ func GetContext(handler http.Handler) http.HandlerFunc {
 		// reuse the values in different handlers
 		r = ctx.Set(r, "session", session)
 		if id, ok := session.Values["id"]; ok {
+			log.Debug("Found user ID in session:", id)
 			u, err := models.GetUser(id.(int64))
 			if err != nil {
 				r = ctx.Set(r, "user", nil)
+				log.Error(err)
 			} else {
 				r = ctx.Set(r, "user", u)
+				// Log individual user fields
+				log.Debugf("User details - ID: %d", u.Id)
+				log.Debugf("User details - Username: %s", u.Username)
+				log.Debugf("User details - Role: %s", u.Role.Slug)
+				log.Debugf("User details - Role ID: %d", u.RoleID)
+				log.Debugf("User details - API Key: %s", u.ApiKey)
+				log.Debugf("User details - Account Locked: %v", u.AccountLocked)
+				log.Debugf("User details - Password Change Required: %v", u.PasswordChangeRequired)
+				log.Debugf("User details - Last Login: %v", u.LastLogin)
+				log.Debugf("User details - Tenant ID: %s", u.TenantID)
+				if u.Tenant != nil {
+					log.Debugf("User details - Tenant Name: %s", u.Tenant.Name)
+				}
+				if len(u.ProviderTenants) > 0 {
+					for _, pt := range u.ProviderTenants {
+						log.Debugf("User details - Provider Tenant ID: %s, Type: %s", pt.ID, pt.ProviderType)
+					}
+				}
 			}
 		} else {
 			r = ctx.Set(r, "user", nil)
+			log.Debug("No user ID in session")
 		}
 		handler.ServeHTTP(w, r)
 		// Remove context contents

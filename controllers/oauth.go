@@ -170,6 +170,57 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Create or get existing tenant
+	tenant := &models.Tenant{
+		ID:   uuid.New().String(),
+		Name: models.DefaultSystemTenantName,
+	}
+
+	// Try to get existing tenant first
+	existingTenant, err := models.GetTenantByName(tenant.Name)
+	if err == nil {
+		// Tenant exists, use existing tenant
+		tenant = &existingTenant
+	} else {
+		// Create new tenant
+		err = tenant.Create()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error creating tenant: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Update user with tenant ID
+	user.TenantID = tenant.ID
+	err = models.PutUser(user)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error updating user with tenant: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Create provider tenant if it doesn't exist
+	providerTenant := &models.ProviderTenant{
+		ID:               uuid.New().String(),
+		TenantID:         tenant.ID,
+		ProviderType:     models.ProviderTypeAzure,
+		ProviderTenantID: tenantID, // From environment variable
+		DisplayName:      "",
+	}
+
+	// Try to get existing provider tenant first
+	existingProviderTenant, err := models.GetProviderTenantByProviderTenantID(tenantID)
+	if err == nil {
+		// Provider tenant exists, use existing provider tenant
+		providerTenant = &existingProviderTenant
+	} else {
+		// Create new provider tenant
+		err = providerTenant.Create()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Error creating provider tenant: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Set up the user session
 	session.Values["id"] = user.Id
 	delete(session.Values, "oauth2_state")

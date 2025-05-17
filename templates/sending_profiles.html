@@ -81,8 +81,6 @@
                             <input type="text" class="form-control" placeholder="Azure AD Application Client ID" id="client_id" />
                             <label class="control-label" for="client_secret">Client Secret:</label>
                             <input type="password" class="form-control" placeholder="Azure AD Application Client Secret" id="client_secret" />
-                            <label class="control-label" for="tenant_id">Tenant ID:</label>
-                            <input type="text" class="form-control" placeholder="Azure AD Tenant ID" id="tenant_id" />
                         </div>
                     </div>
                     <fieldset class="form-group">
@@ -149,6 +147,13 @@
                         <input type="text" class="form-control" placeholder="Position" name="to_position">
                     </div>
                 </div>
+                <!-- Hidden fields for Graph API -->
+                <input type="hidden" id="test_interface_type">
+                <input type="hidden" id="test_app_registration_id">
+                <input type="hidden" id="test_provider_tenant_id">
+                <input type="hidden" id="test_client_id">
+                <input type="hidden" id="test_client_secret">
+                <input type="hidden" id="test_from_address">
             </div>
             <div class="modal-footer">
                 <button type="button" data-dismiss="modal" class="btn btn-default">Cancel</button>

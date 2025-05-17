@@ -145,4 +145,13 @@ func GetProviderTenantsByType(providerType ProviderType) ([]*ProviderTenant, err
 	var providerTenants []*ProviderTenant
 	err := db.Where("provider_type = ?", providerType).Find(&providerTenants).Error
 	return providerTenants, err
-} 
+}
+
+// GetProviderTenantByProviderTenantID returns a provider tenant by its provider_tenant_id
+func GetProviderTenantByProviderTenantID(providerTenantID string) (ProviderTenant, error) {
+	pt := ProviderTenant{}
+	err := db.Where("provider_tenant_id = ?", providerTenantID).First(&pt).Error
+	return pt, err
+}
+
+const DisplayNameMicrosoft = "microsoft" 

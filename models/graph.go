@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type GraphAPISender struct {
 	clientID       string
 	clientSecret   string
 	tenantID       string
+	fromAddress    string
 }
 
 // GraphAPI contains the attributes needed to handle sending campaign emails via Microsoft Graph API
@@ -47,13 +49,14 @@ type GraphAPI struct {
 	Id            int64     `json:"id" gorm:"column:id; primary_key:yes"`
 	UserId        int64     `json:"-" gorm:"column:user_id"`
 	Name          string    `json:"name"`
-	ClientID      string    `json:"client_id"`
-	ClientSecret  string    `json:"client_secret,omitempty"`
-	TenantID      string    `json:"tenant_id"`
 	FromAddress   string    `json:"from_address"`
 	Headers       []Header  `json:"headers"`
 	ModifiedDate  time.Time `json:"modified_date"`
 	InterfaceType string    `json:"interface_type" gorm:"column:interface_type"`
+	// Graph API credentials - populated from app_registration and provider_tenant
+	ClientID      string    `json:"client_id,omitempty" gorm:"-"`
+	ClientSecret  string    `json:"client_secret,omitempty" gorm:"-"`
+	TenantID      string    `json:"tenant_id,omitempty" gorm:"-"`
 }
 
 // TableName specifies the database tablename for Gorm to use
@@ -63,31 +66,57 @@ func (g GraphAPI) TableName() string {
 
 // Validate ensures that Graph API configs are valid
 func (g *GraphAPI) Validate() error {
-	switch {
-	case g.FromAddress == "":
+	if g.FromAddress == "" {
 		return ErrFromAddressNotSpecified
-	case g.ClientID == "":
-		return errors.New("No Client ID specified")
-	case g.ClientSecret == "":
-		return errors.New("No Client Secret specified")
-	case g.TenantID == "":
-		return errors.New("No Tenant ID specified")
 	}
+
+	if g.ClientID == "" {
+		return errors.New("client_id not specified")
+	}
+
+	if g.ClientSecret == "" {
+		return errors.New("client_secret not specified")
+	}
+
+	if g.TenantID == "" {
+		return errors.New("tenant_id not specified")
+	}
+
+	// Validate the from address
+	if _, err := mail.ParseAddress(g.FromAddress); err != nil {
+		return fmt.Errorf("invalid from_address: %v", err)
+	}
+
+	// Try to get a token to validate credentials
+	cache := getTokenCache(g.TenantID)
+	token, err := cache.GetToken(g.ClientID, g.ClientSecret, g.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed to validate Graph API credentials: %v", err)
+	}
+	if token == "" {
+		return errors.New("failed to get valid token from Graph API")
+	}
+
 	return nil
 }
 
-// GetDialer returns a dialer for the Graph API profile
+// GetDialer returns a Dialer for the GraphAPI
 func (g *GraphAPI) GetDialer() (mailer.Dialer, error) {
-	// Create a custom dialer that implements the Graph API sending
-	return &GraphAPIDialer{
+	if err := g.Validate(); err != nil {
+		return nil, err
+	}
+
+	d := &GraphAPIDialer{
 		clientID:     g.ClientID,
 		clientSecret: g.ClientSecret,
 		tenantID:     g.TenantID,
 		fromAddress:  g.FromAddress,
-	}, nil
+	}
+
+	return d, nil
 }
 
-// GraphAPIDialer implements the mailer.Dialer interface for Graph API
+// GraphAPIDialer implements the mailer.Dialer interface for Microsoft Graph API
 type GraphAPIDialer struct {
 	clientID     string
 	clientSecret string
@@ -153,6 +182,7 @@ func (d *GraphAPIDialer) Dial() (mailer.Sender, error) {
 		clientID:     d.clientID,
 		clientSecret: d.clientSecret,
 		tenantID:     d.tenantID,
+		fromAddress:  d.fromAddress,
 	}, nil
 }
 
@@ -181,6 +211,11 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 					Address string `json:"address"`
 				} `json:"emailAddress"`
 			} `json:"toRecipients"`
+			From struct {
+				EmailAddress struct {
+					Address string `json:"address"`
+				} `json:"emailAddress"`
+			} `json:"from"`
 		} `json:"message"`
 		SaveToSentItems bool `json:"saveToSentItems"`
 	}{}
@@ -189,6 +224,7 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 	graphMessage.Message.Subject = "Test Email"
 	graphMessage.Message.Body.ContentType = "Text"
 	graphMessage.Message.Body.Content = buf.String()
+	graphMessage.Message.From.EmailAddress.Address = s.fromAddress
 	graphMessage.SaveToSentItems = true
 
 	for _, recipient := range to {

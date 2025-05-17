@@ -9,6 +9,7 @@ function sendTestEmail() {
             value: unescapeHtml(header[1]),
         })
     })
+    
     var test_email_request = {
         template: {},
         first_name: $("input[name=to_first_name]").val(),
@@ -17,14 +18,28 @@ function sendTestEmail() {
         position: $("input[name=to_position]").val(),
         url: '',
         smtp: {
-            from_address: $("#from").val(),
-            host: $("#host").val(),
-            username: $("#username").val(),
-            password: $("#password").val(),
-            ignore_cert_errors: $("#ignore_cert_errors").prop("checked"),
-            headers: headers,
+            headers: headers
         }
     }
+    
+    // Add interface-specific fields
+    if ($("#interface_type").val() === "SMTP") {
+        test_email_request.smtp.interface_type = "SMTP";
+        test_email_request.smtp.from_address = $("#from").val();
+        test_email_request.smtp.host = $("#host").val();
+        test_email_request.smtp.username = $("#username").val();
+        test_email_request.smtp.password = $("#password").val();
+        test_email_request.smtp.ignore_cert_errors = $("#ignore_cert_errors").prop("checked");
+    } else if ($("#interface_type").val() === "GRAPH") {
+        test_email_request.smtp.interface_type = "GRAPH";
+        test_email_request.smtp.from_address = $("#from_address").val();
+        test_email_request.smtp.client_id = $("#client_id").val();
+        test_email_request.smtp.client_secret = $("#client_secret").val();
+        test_email_request.smtp.provider_tenant_id = $("#provider_tenant_id").val();
+    }
+    
+    console.log("Sending test email with request:", test_email_request);
+    
     btnHtml = $("#sendTestModalSubmit").html()
     $("#sendTestModalSubmit").html('<i class="fa fa-spinner fa-spin"></i> Sending')
     // Send the test email
@@ -76,7 +91,6 @@ function save(idx) {
         profile.from_address = $("#from_address").val()
         profile.client_id = $("#client_id").val()
         profile.client_secret = $("#client_secret").val()
-        profile.tenant_id = $("#tenant_id").val()
     }
 
     if (idx != -1) {
@@ -108,11 +122,24 @@ function dismiss() {
     $("#modal\\.flashes").empty()
     $("#name").val("")
     $("#interface_type").val("SMTP")
+    
+    // Clear SMTP fields
     $("#from").val("")
     $("#host").val("")
     $("#username").val("")
     $("#password").val("")
     $("#ignore_cert_errors").prop("checked", true)
+    
+    // Clear Graph API fields
+    $("#from_address").val("")
+    $("#client_id").val("")
+    $("#client_secret").val("")
+    $("#provider_tenant_id").val("")
+    
+    // Reset UI
+    $("#smtp_fields").show()
+    $("#graph_fields").hide()
+    
     $("#headersTable").dataTable().DataTable().clear().draw()
     $("#modal").modal('hide')
 }
@@ -177,11 +204,26 @@ function edit(idx) {
         profile = profiles[idx]
         $("#name").val(profile.name)
         $("#interface_type").val(profile.interface_type)
-        $("#from").val(profile.from_address)
-        $("#host").val(profile.host)
-        $("#username").val(profile.username)
-        $("#password").val(profile.password)
-        $("#ignore_cert_errors").prop("checked", profile.ignore_cert_errors)
+        
+        // Trigger the interface type change to show/hide appropriate fields
+        $("#interface_type").trigger('change')
+        
+        // Populate the right fields based on interface type
+        if (profile.interface_type === "SMTP") {
+            $("#from").val(profile.from_address)
+            $("#host").val(profile.host)
+            $("#username").val(profile.username)
+            $("#password").val(profile.password)
+            $("#ignore_cert_errors").prop("checked", profile.ignore_cert_errors)
+        } else if (profile.interface_type === "GRAPH") {
+            $("#from_address").val(profile.from_address)
+            $("#client_id").val(profile.client_id)
+            $("#client_secret").val(profile.client_secret)
+            if (profile.provider_tenant_id) {
+                $("#provider_tenant_id").val(profile.provider_tenant_id)
+            }
+        }
+        
         $.each(profile.headers, function (i, record) {
             addCustomHeader(record.key, record.value)
         });
@@ -198,11 +240,25 @@ function copy(idx) {
     profile = profiles[idx]
     $("#name").val("Copy of " + profile.name)
     $("#interface_type").val(profile.interface_type)
-    $("#from").val(profile.from_address)
-    $("#host").val(profile.host)
-    $("#username").val(profile.username)
-    $("#password").val(profile.password)
-    $("#ignore_cert_errors").prop("checked", profile.ignore_cert_errors)
+    
+    // Trigger the interface type change to show/hide appropriate fields
+    $("#interface_type").trigger('change')
+    
+    // Populate the right fields based on interface type
+    if (profile.interface_type === "SMTP") {
+        $("#from").val(profile.from_address)
+        $("#host").val(profile.host)
+        $("#username").val(profile.username)
+        $("#password").val(profile.password)
+        $("#ignore_cert_errors").prop("checked", profile.ignore_cert_errors)
+    } else if (profile.interface_type === "GRAPH") {
+        $("#from_address").val(profile.from_address)
+        $("#client_id").val(profile.client_id)
+        $("#client_secret").val(profile.client_secret)
+        if (profile.provider_tenant_id) {
+            $("#provider_tenant_id").val(profile.provider_tenant_id)
+        }
+    }
 }
 
 function load() {
@@ -353,3 +409,4 @@ $(document).ready(function () {
     });
     load()
 })
+

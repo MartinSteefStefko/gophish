@@ -18,8 +18,28 @@
     <script>
         {{if .User}}
     var user = {
-        api_key : {{ .User.ApiKey }},
-        username : {{ .User.Username }}
+        id: {{ .User.Id }},
+        username: {{ .User.Username }},
+        api_key: {{ .User.ApiKey }},
+        role: {
+            id: {{ .User.RoleID }},
+            slug: {{ .User.Role.Slug }}
+        },
+        tenant: {
+            id: {{ .User.TenantID }},
+            name: {{ .User.Tenant.Name }}
+        },
+        provider_tenants: [
+            {{range .User.ProviderTenants}}
+            {
+                id: {{ .ID }},
+                display_name: {{ .DisplayName }},
+                provider_tenant_id: {{ .ProviderTenantID }},
+                type: {{ .ProviderType }}
+            },
+            {{end}}
+        ]
+        // ...add more fields as needed
     }
     {{end}}
     {{if .Token}}

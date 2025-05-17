@@ -23,13 +23,20 @@ type User struct {
 	PasswordChangeRequired bool      `json:"password_change_required"`
 	AccountLocked          bool      `json:"account_locked"`
 	LastLogin              time.Time `json:"last_login"`
+	TenantID               string    `json:"tenant_id" gorm:"column:tenant_id"`
+	// Added fields for tenant relationships
+	Tenant          *Tenant           `json:"tenant" gorm:"foreignkey:TenantID"`
+	ProviderTenants []*ProviderTenant `json:"provider_tenants" gorm:"foreignkey:TenantID;association_foreignkey:TenantID"`
 }
 
 // GetUser returns the user that the given id corresponds to. If no user is found, an
 // error is thrown.
 func GetUser(id int64) (User, error) {
 	u := User{}
-	err := db.Preload("Role").Where("id=?", id).First(&u).Error
+	err := db.Preload("Role").
+		Preload("Tenant").
+		Preload("ProviderTenants").
+		Where("id=?", id).First(&u).Error
 	return u, err
 }
 
