@@ -35,7 +35,12 @@ function sendTestEmail() {
         test_email_request.smtp.from_address = $("#from_address").val();
         test_email_request.smtp.client_id = $("#client_id").val();
         test_email_request.smtp.client_secret = $("#client_secret").val();
-        test_email_request.smtp.provider_tenant_id = $("#provider_tenant_id").val();
+        
+        // Only set provider_tenant_id if it's provided in the form
+        // The backend will get it from context if not provided here
+        if ($("#provider_tenant_id").val()) {
+            test_email_request.smtp.provider_tenant_id = $("#provider_tenant_id").val();
+        }
     }
     
     console.log("Sending test email with request:", test_email_request);

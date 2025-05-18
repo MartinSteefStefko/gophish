@@ -47,9 +47,10 @@ type SMTP struct {
 	// Graph API fields - reference to app_registration
 	AppRegistrationID string    `json:"app_registration_id" gorm:"column:app_registration_id"`
 	// Temporary fields for Graph API registration - not stored in database
-	ClientID     string `json:"client_id,omitempty" gorm:"-"`
-	ClientSecret string `json:"client_secret,omitempty" gorm:"-"`
-	TenantID     string `json:"tenant_id,omitempty" gorm:"-"`
+	ClientID         string `json:"client_id,omitempty" gorm:"-"`
+	ClientSecret     string `json:"client_secret,omitempty" gorm:"-"`
+	TenantID         string `json:"tenant_id,omitempty" gorm:"-"`
+	ProviderTenant   *ProviderTenant `json:"-" gorm:"-"` // For passing provider tenant from context
 }
 
 // Header contains the fields and methods for a sending profile to have
@@ -104,17 +105,61 @@ func (s *SMTP) Validate() error {
 
 	// For Graph API interface, validate app registration
 	if s.Interface == "GRAPH" {
-		// Get the user to find their tenant
-		user, err := GetUser(s.UserId)
-		if err != nil {
-			return fmt.Errorf("failed to get user: %v", err)
-		}
-
-		// Get the Microsoft provider tenant for this user's tenant
+		// Initialize provider tenant
 		var providerTenant ProviderTenant
-		err = db.Where("tenant_id = ? AND provider_type = ?", user.TenantID, ProviderTypeAzure).First(&providerTenant).Error
-		if err != nil {
-			return fmt.Errorf("failed to get Microsoft provider tenant: %v", err)
+		
+		// If we have a provider tenant directly from the controller, use it
+		if s.ProviderTenant != nil {
+			log.Infof("Using provider tenant from context: %s (%s)", s.ProviderTenant.DisplayName, s.ProviderTenant.ID)
+			providerTenant = *s.ProviderTenant
+		} else {
+			// Otherwise try to get it from the user
+			user, err := GetUser(s.UserId)
+			if err != nil {
+				log.Warnf("User not found for SMTP validation, proceeding without tenant context: %v", err)
+				// For updating existing profiles, continue without tenant context
+				if s.Id != 0 && s.AppRegistrationID != "" {
+					// For existing profiles with app registration, we can still validate
+					appReg, err := GetAppRegistration(s.AppRegistrationID)
+					if err != nil {
+						return fmt.Errorf("Invalid App Registration: %v", err)
+					}
+					
+					// If we can't get the provider tenant directly, we'll use the client credentials directly
+					if s.ClientID != "" && s.ClientSecret != "" {
+						g := GraphAPI{
+							FromAddress:   s.FromAddress,
+							ClientID:      s.ClientID,
+							ClientSecret:  s.ClientSecret,
+							TenantID:      s.TenantID, // Use the tenant ID provided in the request
+							InterfaceType: s.Interface,
+						}
+						return g.Validate()
+					}
+					
+					// Otherwise, use the app registration
+					g := GraphAPI{
+						FromAddress:   s.FromAddress,
+						ClientID:      appReg.ClientID,
+						ClientSecret:  appReg.ClientSecretEncrypted,
+						TenantID:      s.TenantID, // Use the tenant ID provided in the request
+						InterfaceType: s.Interface,
+					}
+					return g.Validate()
+				}
+				
+				// For new profiles, we need tenant info - return error
+				if s.Id == 0 {
+					return fmt.Errorf("failed to get user tenant information: %v", err)
+				}
+			} else if user.TenantID != "" {
+				// If we have a user with tenant, get the provider tenant
+				err = db.Where("tenant_id = ? AND provider_type = ?", user.TenantID, ProviderTypeAzure).First(&providerTenant).Error
+				if err != nil {
+					log.Warnf("Provider tenant not found for user tenant %s: %v", user.TenantID, err)
+					// Continue without provider tenant - use client credentials directly
+				}
+			}
 		}
 
 		// If we have an app registration ID, validate through that
@@ -130,9 +175,18 @@ func (s *SMTP) Validate() error {
 				FromAddress:   s.FromAddress,
 				ClientID:      appReg.ClientID,
 				ClientSecret:  appReg.ClientSecretEncrypted,
-				TenantID:     providerTenant.ProviderTenantID,
 				InterfaceType: s.Interface,
 			}
+			
+			// Use provider tenant ID if available, otherwise fallback to the one in the request
+			if providerTenant.ID != "" {
+				g.TenantID = providerTenant.ProviderTenantID
+			} else if s.TenantID != "" {
+				g.TenantID = s.TenantID
+			} else {
+				return fmt.Errorf("no tenant ID available for validation")
+			}
+			
 			// Delegate to GraphAPI's validation
 			return g.Validate()
 		}
@@ -141,38 +195,51 @@ func (s *SMTP) Validate() error {
 		if s.ClientID == "" || s.ClientSecret == "" {
 			return errors.New("client_id and client_secret are required for Graph API")
 		}
-
-		// Create a new app registration with the tenant ID from the provider tenant
-		appReg := &AppRegistration{
-			ProviderTenantID:      providerTenant.ID,
-			ClientID:              s.ClientID,
-			ClientSecretEncrypted: s.ClientSecret,
-			RedirectURI:           "https://localhost:3333",
+		
+		// If we have a provider tenant, create an app registration
+		if providerTenant.ID != "" {
+			// Create a new app registration with the tenant ID from the provider tenant
+			appReg := &AppRegistration{
+				ProviderTenantID:      providerTenant.ID,
+				ClientID:              s.ClientID,
+				ClientSecretEncrypted: s.ClientSecret,
+				RedirectURI:           "https://localhost:3333",
+			}
+			
+			// Set default Graph API scopes
+			appReg.SetScopes([]string{
+				"https://graph.microsoft.com/Mail.Send",
+				"https://graph.microsoft.com/Mail.Send.Shared",
+				"https://graph.microsoft.com/User.Read",
+			})
+			
+			// Create the app registration
+			err := appReg.Create()
+			if err != nil {
+				return fmt.Errorf("failed to create app registration: %v", err)
+			}
+			
+			// Set the app registration ID in the SMTP profile
+			s.AppRegistrationID = appReg.ID
 		}
-		
-		// Set default Graph API scopes
-		appReg.SetScopes([]string{
-			"https://graph.microsoft.com/Mail.Send",
-			"https://graph.microsoft.com/Mail.Send.Shared",
-		})
-		
-		// Create the app registration
-		err = appReg.Create()
-		if err != nil {
-			return fmt.Errorf("failed to create app registration: %v", err)
-		}
-		
-		// Set the app registration ID in the SMTP profile
-		s.AppRegistrationID = appReg.ID
 
 		// Create a GraphAPI instance for validation
 		g := GraphAPI{
 			FromAddress:   s.FromAddress,
 			ClientID:      s.ClientID,
 			ClientSecret:  s.ClientSecret,
-			TenantID:     providerTenant.ProviderTenantID,
 			InterfaceType: s.Interface,
 		}
+		
+		// Use provider tenant ID if available, otherwise fallback to the one in the request
+		if providerTenant.ID != "" {
+			g.TenantID = providerTenant.ProviderTenantID
+		} else if s.TenantID != "" {
+			g.TenantID = s.TenantID
+		} else {
+			return fmt.Errorf("no tenant ID available for validation")
+		}
+		
 		return g.Validate()
 	}
 
@@ -214,13 +281,46 @@ func validateFromAddress(email string) bool {
 func (s *SMTP) GetDialer() (mailer.Dialer, error) {
 	// For Graph API interface, use GraphAPI's GetDialer method
 	if s.Interface == "GRAPH" {
+		log.Infof("Creating dialer for Graph API sending profile")
+		
 		// If we have temporary credentials (for test emails), use those directly
 		if s.ClientID != "" && s.ClientSecret != "" {
+			log.Infof("Using provided client credentials for Graph API")
+			
+			// Determine tenant ID to use
+			var tenantID string
+			
+			// Check if we have a provider tenant from context
+			if s.ProviderTenant != nil && s.ProviderTenant.ProviderTenantID != "" {
+				log.Infof("Using provider tenant ID from context: %s", s.ProviderTenant.ProviderTenantID)
+				tenantID = s.ProviderTenant.ProviderTenantID
+			} else if s.TenantID != "" {
+				// Try to get provider tenant from database using tenant ID
+				log.Infof("Looking up provider tenant for tenant ID: %s", s.TenantID)
+				providerTenant, err := GetProviderTenantByType(s.TenantID, ProviderTypeAzure)
+				if err != nil {
+					log.Warnf("Failed to find provider tenant for tenant ID %s: %v", s.TenantID, err)
+					if s.TenantID != "" {
+						// Use provided tenant ID as fallback
+						log.Infof("Using tenant ID as fallback: %s", s.TenantID)
+						tenantID = s.TenantID
+					}
+				} else {
+					log.Infof("Found provider tenant: %s", providerTenant.ProviderTenantID)
+					tenantID = providerTenant.ProviderTenantID
+				}
+			}
+			
+			// Check if we have a tenant ID
+			if tenantID == "" {
+				return nil, fmt.Errorf("no tenant ID available for Graph API")
+			}
+			
 			g := GraphAPI{
 				FromAddress:   s.FromAddress,
 				ClientID:      s.ClientID,
 				ClientSecret:  s.ClientSecret,
-				TenantID:     s.TenantID,
+				TenantID:      tenantID,
 				InterfaceType: s.Interface,
 			}
 			return g.GetDialer()
@@ -242,7 +342,7 @@ func (s *SMTP) GetDialer() (mailer.Dialer, error) {
 			FromAddress:   s.FromAddress,
 			ClientID:      appReg.ClientID,
 			ClientSecret:  appReg.ClientSecretEncrypted,
-			TenantID:     providerTenant.ProviderTenantID,
+			TenantID:      providerTenant.ProviderTenantID,
 			InterfaceType: s.Interface,
 		}
 		return g.GetDialer()
@@ -438,21 +538,98 @@ func PostSMTP(s *SMTP) error {
 // PutSMTP edits an existing SMTP in the database.
 // Per the PUT Method RFC, it presumes all data for a SMTP is provided.
 func PutSMTP(s *SMTP) error {
+	// For existing profiles, if the interface is GRAPH, we'll skip validation
+	// but still update all relevant fields
+	if s.Id != 0 && s.Interface == "GRAPH" {
+		// First get the existing record to ensure we're not changing critical fields
+		existing := SMTP{}
+		err := db.Where("id=?", s.Id).First(&existing).Error
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		
+		// Ensure we're not changing user_id
+		s.UserId = existing.UserId
+		
+		// Update all fields except user_id (which must remain the same)
+		updateFields := map[string]interface{}{
+			"name": s.Name,
+			"interface_type": s.Interface,
+			"from_address": s.FromAddress,
+			"modified_date": time.Now().UTC(),
+		}
+		
+		// Add Graph API specific fields if provided
+		if s.AppRegistrationID != "" {
+			updateFields["app_registration_id"] = s.AppRegistrationID
+		}
+		
+		// Update in the database
+		err = db.Model(&SMTP{}).Where("id=?", s.Id).Updates(updateFields).Error
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		
+		// If we have new client credentials, update the app registration
+		if s.ClientID != "" && s.ClientSecret != "" && existing.AppRegistrationID != "" {
+			// Get the app registration
+			appReg, err := GetAppRegistration(existing.AppRegistrationID)
+			if err != nil {
+				log.Errorf("Failed to get app registration for SMTP profile %d: %v", s.Id, err)
+			} else {
+				// Update client credentials
+				appReg.ClientID = s.ClientID
+				appReg.ClientSecretEncrypted = s.ClientSecret
+				
+				// Save the app registration
+				err = db.Save(appReg).Error
+				if err != nil {
+					log.Errorf("Failed to update app registration for SMTP profile %d: %v", s.Id, err)
+				}
+			}
+		}
+		
+		// Delete all custom headers, and replace with new ones
+		err = db.Where("smtp_id=?", s.Id).Delete(&Header{}).Error
+		if err != nil && err != gorm.ErrRecordNotFound {
+			log.Error(err)
+			return err
+		}
+		
+		// Save custom headers
+		for i := range s.Headers {
+			s.Headers[i].SMTPId = s.Id
+			err := db.Save(&s.Headers[i]).Error
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+		}
+		
+		return nil
+	}
+	
+	// For new profiles or SMTP profiles, proceed with validation
 	err := s.Validate()
 	if err != nil {
 		log.Error(err)
 		return err
 	}
+	
 	err = db.Where("id=?", s.Id).Save(s).Error
 	if err != nil {
 		log.Error(err)
 	}
+	
 	// Delete all custom headers, and replace with new ones
 	err = db.Where("smtp_id=?", s.Id).Delete(&Header{}).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		log.Error(err)
 		return err
 	}
+	
 	// Save custom headers
 	for i := range s.Headers {
 		s.Headers[i].SMTPId = s.Id
@@ -462,6 +639,7 @@ func PutSMTP(s *SMTP) error {
 			return err
 		}
 	}
+	
 	return err
 }
 

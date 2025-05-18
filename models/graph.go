@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
+	log "github.com/gophish/gophish/logger"
 	"github.com/gophish/gophish/mailer"
 )
 
@@ -198,6 +200,21 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 		return fmt.Errorf("error reading message: %v", err)
 	}
 
+	// Log the message being sent
+	messageStr := buf.String()
+	log.Infof("Preparing to send message with length: %d bytes", len(messageStr))
+	
+	// Extract subject from message if possible
+	subject := "Test Email from Gophish"
+	if lines := strings.Split(messageStr, "\n"); len(lines) > 0 {
+		for _, line := range lines {
+			if strings.HasPrefix(strings.ToLower(line), "subject:") {
+				subject = strings.TrimSpace(strings.TrimPrefix(line, "Subject:"))
+				break
+			}
+		}
+	}
+
 	// Convert the email message to Graph API format
 	graphMessage := struct {
 		Message struct {
@@ -220,12 +237,12 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 		SaveToSentItems bool `json:"saveToSentItems"`
 	}{}
 
-	// Parse the email message
-	graphMessage.Message.Subject = "Test Email"
-	graphMessage.Message.Body.ContentType = "Text"
-	graphMessage.Message.Body.Content = buf.String()
+	// Prepare the message
+	graphMessage.Message.Subject = subject
+	graphMessage.Message.Body.ContentType = "HTML" // Change to HTML to better support formatted emails
+	graphMessage.Message.Body.Content = messageStr // Use the full message content
 	graphMessage.Message.From.EmailAddress.Address = s.fromAddress
-	graphMessage.SaveToSentItems = true
+	graphMessage.SaveToSentItems = false // Set to false for application permissions
 
 	for _, recipient := range to {
 		graphMessage.Message.ToRecipients = append(graphMessage.Message.ToRecipients, struct {
@@ -247,7 +264,18 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 		return fmt.Errorf("error marshaling message: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", s.graphBaseURL+"/v1.0/users/me/sendMail", bytes.NewBuffer(jsonData))
+	// For application permissions, we need to use a specific user's email address
+	// The fromAddress contains the email of the user we're sending as
+	userEmailEncoded := url.QueryEscape(s.fromAddress)
+	
+	// Use the /users/{email}/sendMail endpoint with the specific user
+	sendMailURL := fmt.Sprintf("%s/users/%s/sendMail", s.graphBaseURL, userEmailEncoded)
+	
+	log.Infof("Sending mail using Graph API URL: %s", sendMailURL)
+	log.Infof("Using from address: %s", s.fromAddress)
+	log.Infof("Message subject: %s", subject)
+
+	req, err := http.NewRequest("POST", sendMailURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %v", err)
 	}
@@ -270,7 +298,7 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 		return errors.New("rate limit exceeded")
 	}
 
-	if resp.StatusCode != http.StatusAccepted {
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("error from Graph API: %d %s - %s", resp.StatusCode, resp.Status, string(body))
 	}
@@ -296,6 +324,10 @@ func getNewAccessToken(clientID, clientSecret, tenantID string) (string, int, er
 	data.Set("client_secret", clientSecret)
 	data.Set("scope", "https://graph.microsoft.com/.default")
 
+	// Log the token request
+	log.Infof("Requesting token with client_id: %s, tenantID: %s, scope: %s", 
+		clientID, tenantID, "https://graph.microsoft.com/.default")
+
 	tokenURL := fmt.Sprintf(defaultTokenEndpoint, tenantID)
 	resp, err := http.PostForm(tokenURL, data)
 	if err != nil {
@@ -311,10 +343,19 @@ func getNewAccessToken(clientID, clientSecret, tenantID string) (string, int, er
 	var result struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`
+		Scope       string `json:"scope"`
+		TokenType   string `json:"token_type"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", 0, fmt.Errorf("error decoding token response: %v", err)
+	}
+
+	log.Infof("Successfully acquired token. Type: %s, Expires in: %d seconds", 
+		result.TokenType, result.ExpiresIn)
+	
+	if result.Scope != "" {
+		log.Infof("Token scopes: %s", result.Scope)
 	}
 
 	return result.AccessToken, result.ExpiresIn, nil

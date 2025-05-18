@@ -81,6 +81,34 @@ func (as *Server) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 		s.PageId = s.Page.Id
 	}
 
+	// Get user from context and pass tenant information if available
+	if user := ctx.Get(r, "user"); user != nil {
+		log.Infof("Found user in context for test email")
+		if u, ok := user.(models.User); ok {
+			log.Infof("User details - ID: %d, Tenant ID: %s", u.Id, u.TenantID)
+			
+			// Set tenant ID if available
+			if u.TenantID != "" {
+				s.SMTP.TenantID = u.TenantID
+				
+				// If this is a Graph API profile, also look for provider tenant
+				if s.SMTP.Interface == "GRAPH" {
+					// Check if we already have a provider tenant
+					if len(u.ProviderTenants) > 0 {
+						for _, pt := range u.ProviderTenants {
+							if pt.ProviderType == models.ProviderTypeAzure {
+								log.Infof("Found Azure provider tenant for user: %s (%s)", 
+									pt.DisplayName, pt.ProviderTenantID)
+								s.SMTP.ProviderTenant = pt
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// If a complete sending profile is provided use it
 	if err := s.SMTP.Validate(); err != nil {
 		// Otherwise get the SMTP requested by name

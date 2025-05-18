@@ -37,6 +37,21 @@ func GetUser(id int64) (User, error) {
 		Preload("Tenant").
 		Preload("ProviderTenants").
 		Where("id=?", id).First(&u).Error
+	
+	// Ensure provider tenants are fully loaded with all fields
+	if err == nil && len(u.ProviderTenants) > 0 {
+		for i, pt := range u.ProviderTenants {
+			var fullPT ProviderTenant
+			err := db.Where("id = ?", pt.ID).First(&fullPT).Error
+			if err != nil {
+				log.Errorf("Failed to load provider tenant details for %s: %v", pt.ID, err)
+				continue
+			}
+			// Update with the fully loaded provider tenant
+			u.ProviderTenants[i] = &fullPT
+		}
+	}
+	
 	return u, err
 }
 

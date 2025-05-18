@@ -149,6 +149,17 @@ func (w *DefaultWorker) LaunchCampaign(c models.Campaign) {
 
 // SendTestEmail sends a test email
 func (w *DefaultWorker) SendTestEmail(s *models.EmailRequest) error {
+	// Log request details
+	if s.SMTP.Interface == "GRAPH" {
+		log.Infof("Processing Graph API test email request. From: %s", s.SMTP.FromAddress)
+		if s.SMTP.ProviderTenant != nil {
+			log.Infof("Provider tenant information: ID=%s, Type=%s, ProviderTenantID=%s", 
+				s.SMTP.ProviderTenant.ID, s.SMTP.ProviderTenant.ProviderType, s.SMTP.ProviderTenant.ProviderTenantID)
+		} else {
+			log.Infof("No provider tenant in request, will attempt to get from user context")
+		}
+	}
+	
 	go func() {
 		ms := []mailer.Mail{s}
 		w.mailer.Queue(ms)

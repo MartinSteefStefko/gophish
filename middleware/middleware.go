@@ -143,11 +143,25 @@ func RequireAPIKey(handler http.Handler) http.Handler {
 			JSONError(w, http.StatusUnauthorized, "API Key not set")
 			return
 		}
+		// Get user by API key
 		u, err := models.GetUserByAPIKey(ak)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Invalid API Key")
 			return
 		}
+
+		// Now get complete user with tenant information
+		userWithTenant, err := models.GetUser(u.Id)
+		if err != nil {
+			log.Warnf("Failed to get user with tenant info: %v", err)
+			// Still proceed with the basic user we have
+		} else {
+			// Use the complete user with tenant information
+			u = userWithTenant
+			log.Infof("Loaded user %d with tenant ID %s and %d provider tenants", 
+				u.Id, u.TenantID, len(u.ProviderTenants))
+		}
+
 		r = ctx.Set(r, "user", u)
 		r = ctx.Set(r, "user_id", u.Id)
 		r = ctx.Set(r, "api_key", ak)
