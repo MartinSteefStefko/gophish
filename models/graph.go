@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	log "github.com/gophish/gophish/logger"
 	"github.com/gophish/gophish/mailer"
+	"golang.org/x/oauth2"
 )
 
 // TokenCache holds the cached access token and its expiry
@@ -359,4 +361,97 @@ func getNewAccessToken(clientID, clientSecret, tenantID string) (string, int, er
 	}
 
 	return result.AccessToken, result.ExpiresIn, nil
+}
+
+// GetGraphClientForUser returns a Graph API client for a specific user
+func GetGraphClientForUser(ctx context.Context, userID int64) (*GraphClient, error) {
+	// Get and refresh token if needed
+	token, err := GetAndRefreshTokenIfNeeded(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %v", err)
+	}
+
+	// Get default app registration for endpoint
+	defaultAppReg, err := GetDefaultAppRegistration()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default app registration: %v", err)
+	}
+
+	// Get provider tenant info
+	providerTenant, err := GetProviderTenant(defaultAppReg.ProviderTenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider tenant: %v", err)
+	}
+
+	// Create HTTP client with token
+	httpClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(token))
+
+	return &GraphClient{
+		client:         httpClient,
+		providerTenant: providerTenant,
+	}, nil
+}
+
+// SendMailAsUser sends an email using the Graph API on behalf of a user
+func SendMailAsUser(ctx context.Context, userID int64, message *GraphMailMessage) error {
+	client, err := GetGraphClientForUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get Graph client: %v", err)
+	}
+
+	return client.SendMail(ctx, message)
+}
+
+// GraphClient represents a Microsoft Graph API client
+type GraphClient struct {
+	client         *http.Client
+	providerTenant *ProviderTenant
+}
+
+// GraphMailMessage represents an email message for the Graph API
+type GraphMailMessage struct {
+	Message struct {
+		Subject      string `json:"subject"`
+		Body         struct {
+			ContentType string `json:"contentType"`
+			Content     string `json:"content"`
+		} `json:"body"`
+		ToRecipients []struct {
+			EmailAddress struct {
+				Address string `json:"address"`
+			} `json:"emailAddress"`
+		} `json:"toRecipients"`
+	} `json:"message"`
+	SaveToSentItems bool `json:"saveToSentItems"`
+}
+
+// SendMail sends an email using the Graph API
+func (c *GraphClient) SendMail(ctx context.Context, message *GraphMailMessage) error {
+	// Convert message to JSON
+	jsonData, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %v", err)
+	}
+
+	// Create request
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://graph.microsoft.com/v1.0/me/sendMail", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send request
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to send mail: %s - %s", resp.Status, string(body))
+	}
+
+	return nil
 } 

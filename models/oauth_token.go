@@ -10,18 +10,19 @@ import (
 
 // OAuthToken represents an OAuth token for a specific provider tenant
 type OAuthToken struct {
-	ID               string    `gorm:"type:text;primary_key"`
-	ProviderTenantID string    `gorm:"type:text;index"`
-	UserID           int64     `gorm:"index"` // Reference to Gophish user
-	TokenEncrypted   string    `gorm:"type:text"` // Encrypted token JSON
-	ExpiresAt        time.Time `gorm:"type:timestamp"`
-	CreatedAt        time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
-	UpdatedAt        time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
+	ID                    string    `gorm:"type:text;primary_key"`
+	UserID               int64     `gorm:"index:idx_user_provider,unique:user_provider"` // Unique constraint with provider_tenant_id
+	ProviderTenantID     string    `gorm:"type:text;index:idx_user_provider,unique:user_provider"` // Unique constraint with user_id
+	ProviderType         string    `gorm:"type:text"`
+	AccessTokenEncrypted string    `gorm:"type:text"`
+	RefreshTokenEncrypted string   `gorm:"type:text"`
+	ExpiresAt            time.Time `gorm:"type:timestamp"`
+	CreatedAt            time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP"`
 }
 
 // TableName specifies the table name for the OAuthToken model
 func (OAuthToken) TableName() string {
-	return "oauth2_tokens"
+	return "oauth_tokens"
 }
 
 // BeforeCreate will set a UUID rather than numeric ID.
@@ -43,7 +44,7 @@ func (t *OAuthToken) Validate() error {
 	if t.UserID == 0 {
 		return errors.New("user ID cannot be empty")
 	}
-	if len(t.TokenEncrypted) == 0 {
+	if len(t.AccessTokenEncrypted) == 0 {
 		return errors.New("token cannot be empty")
 	}
 	return nil
@@ -58,17 +59,19 @@ func (t *OAuthToken) Create() error {
 		t.ID = uuid.New().String()
 	}
 	t.CreatedAt = time.Now().UTC()
-	t.UpdatedAt = time.Now().UTC()
 	return db.Create(t).Error
 }
 
-// Update modifies an existing OAuth token in the database
+// Update updates an existing OAuth token in the database
 func (t *OAuthToken) Update() error {
 	if err := t.Validate(); err != nil {
-		return err
+		return fmt.Errorf("invalid token: %v", err)
 	}
-	t.UpdatedAt = time.Now().UTC()
-	return db.Save(t).Error
+	return db.Model(&OAuthToken{}).Where("id = ?", t.ID).Updates(map[string]interface{}{
+		"access_token_encrypted": t.AccessTokenEncrypted,
+		"refresh_token_encrypted": t.RefreshTokenEncrypted,
+		"expires_at": t.ExpiresAt,
+	}).Error
 }
 
 // Delete removes an OAuth token from the database

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
-	"github.com/gophish/gophish/auth"
 	ctx "github.com/gophish/gophish/context"
 	"github.com/gophish/gophish/middleware"
 	"github.com/gophish/gophish/models"
@@ -140,32 +140,39 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the user role
-	role, err := models.GetRoleBySlug(models.RoleUser)
+	// Create or get user
+	user, err := models.GetOrCreateUser(userInfo.Mail, userInfo.DisplayName)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error getting user role: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error getting/creating user: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Create or get existing user
-	user := &models.User{
-		Username:               userInfo.Mail, // Use email as username
-		Role:                   role,
-		RoleID:                role.ID,
-		PasswordChangeRequired: false,
-		ApiKey:                auth.GenerateSecureKey(auth.APIKeyLength),
-	}
-
-	// Try to get existing user first
-	existingUser, err := models.GetUserByUsername(user.Username)
+	// Try to get existing token first
+	existingToken, err := models.GetOAuthTokenByUserAndProviderTenant(user.Id, tenantID)
 	if err == nil {
-		// User exists, use existing user
-		user = &existingUser
+		// Token exists, update it
+		existingToken.AccessTokenEncrypted = token.AccessToken
+		existingToken.RefreshTokenEncrypted = token.RefreshToken
+		existingToken.ExpiresAt = token.Expiry
+		if err := existingToken.Update(); err != nil {
+			http.Error(w, fmt.Sprintf("Error updating token: %v", err), http.StatusInternalServerError)
+			return
+		}
 	} else {
-		// Create new user
-		err = models.PutUser(user)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Error creating user: %v", err), http.StatusInternalServerError)
+		// Create new token
+		oauthToken := &models.OAuthToken{
+			ID:                   uuid.New().String(),
+			UserID:              user.Id,
+			ProviderTenantID:    tenantID,
+			ProviderType:        "azure",
+			AccessTokenEncrypted: token.AccessToken,
+			RefreshTokenEncrypted: token.RefreshToken,
+			ExpiresAt:           token.Expiry,
+			CreatedAt:           time.Now().UTC(),
+		}
+
+		if err := models.SaveOAuthTokenDirect(oauthToken); err != nil {
+			http.Error(w, fmt.Sprintf("Error saving token: %v", err), http.StatusInternalServerError)
 			return
 		}
 	}

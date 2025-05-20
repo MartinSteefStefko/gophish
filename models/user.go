@@ -2,8 +2,10 @@ package models
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/gophish/gophish/auth"
 	log "github.com/gophish/gophish/logger"
 )
 
@@ -181,4 +183,36 @@ func DeleteUser(id int64) error {
 	// Finally, delete the user
 	err = db.Where("id=?", id).Delete(&User{}).Error
 	return err
+}
+
+// GetOrCreateUser gets an existing user by username or creates a new one
+func GetOrCreateUser(username string, displayName string) (*User, error) {
+	// Try to get existing user first
+	existingUser, err := GetUserByUsername(username)
+	if err == nil {
+		// User exists, use existing user
+		return &existingUser, nil
+	}
+
+	// Get default role
+	role, err := GetRoleBySlug(RoleUser)
+	if err != nil {
+		return nil, fmt.Errorf("error getting default role: %v", err)
+	}
+
+	// Create new user
+	user := &User{
+		Username:               username,
+		Role:                  role,
+		RoleID:               role.ID,
+		PasswordChangeRequired: false,
+		ApiKey:                auth.GenerateSecureKey(auth.APIKeyLength),
+	}
+
+	err = PutUser(user)
+	if err != nil {
+		return nil, fmt.Errorf("error creating user: %v", err)
+	}
+
+	return user, nil
 }

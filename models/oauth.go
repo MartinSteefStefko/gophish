@@ -54,7 +54,7 @@ var GetOAuth2Config = func(appRegID string) (*oauth2.Config, error) {
 	}, nil
 }
 
-// SaveOAuth2Token saves an OAuth2 token for a user
+// SaveOAuth2Token saves or updates an OAuth2 token for a user
 func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *oauth2.Token) error {
 	// Check if the app registration exists
 	appReg, err := GetAppRegistration(appRegID)
@@ -63,20 +63,36 @@ func SaveOAuth2Token(ctx context.Context, appRegID string, userID int64, token *
 	}
 
 	// TEMPORARY: Skip encryption and store token directly
-	tokenBytes, err := json.Marshal(token)
+	accessTokenBytes, err := json.Marshal(token.AccessToken)
 	if err != nil {
-		return fmt.Errorf("failed to marshal token: %v", err)
+		return fmt.Errorf("failed to marshal access token: %v", err)
 	}
 
-	// Save the token
+	refreshTokenBytes, err := json.Marshal(token.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("failed to marshal refresh token: %v", err)
+	}
+
+	// Try to get existing token first
+	existingToken, err := GetOAuthTokenByUserAndProviderTenant(userID, appReg.ProviderTenantID)
+	if err == nil {
+		// Token exists, update it
+		existingToken.AccessTokenEncrypted = string(accessTokenBytes)
+		existingToken.RefreshTokenEncrypted = string(refreshTokenBytes)
+		existingToken.ExpiresAt = token.Expiry
+		return existingToken.Update()
+	}
+
+	// Token doesn't exist, create new one
 	oauthToken := &OAuthToken{
-		ID:               uuid.New().String(),
-		ProviderTenantID: appReg.ProviderTenantID,
-		UserID:           userID,
-		TokenEncrypted:   string(tokenBytes),
-		ExpiresAt:        token.Expiry,
-		CreatedAt:        time.Now().UTC(),
-		UpdatedAt:        time.Now().UTC(),
+		ID:                   uuid.New().String(),
+		ProviderTenantID:    appReg.ProviderTenantID,
+		UserID:              userID,
+		ProviderType:        "azure",
+		AccessTokenEncrypted: string(accessTokenBytes),
+		RefreshTokenEncrypted: string(refreshTokenBytes),
+		ExpiresAt:           token.Expiry,
+		CreatedAt:           time.Now().UTC(),
 	}
 
 	if err := db.Create(oauthToken).Error; err != nil {
@@ -101,12 +117,22 @@ func GetUserOAuth2Token(ctx context.Context, appRegID string, userID int64) (*oa
 	}
 
 	// TEMPORARY: Skip decryption and use token directly
-	var storedToken oauth2.Token
-	if err := json.Unmarshal([]byte(token.TokenEncrypted), &storedToken); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal token: %v", err)
+	var accessToken string
+	if err := json.Unmarshal([]byte(token.AccessTokenEncrypted), &accessToken); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal access token: %v", err)
 	}
 
-	return &storedToken, nil
+	var refreshToken string
+	if err := json.Unmarshal([]byte(token.RefreshTokenEncrypted), &refreshToken); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal refresh token: %v", err)
+	}
+
+	return &oauth2.Token{
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		RefreshToken: refreshToken,
+		Expiry:      token.ExpiresAt,
+	}, nil
 }
 
 // CreateProviderTenant creates a new provider tenant
@@ -141,4 +167,53 @@ func CreateTenant(ctx context.Context, name string) (*Tenant, error) {
 	}
 
 	return tenant, nil
+}
+
+// GetAndRefreshTokenIfNeeded gets a token for a user and refreshes it if needed
+func GetAndRefreshTokenIfNeeded(ctx context.Context, userID int64) (*oauth2.Token, error) {
+	// Get the default app registration
+	defaultAppReg, err := GetDefaultAppRegistration()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default app registration: %v", err)
+	}
+
+	// Get the token
+	token, err := GetUserOAuth2Token(ctx, defaultAppReg.ID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %v", err)
+	}
+
+	// Check if token needs refresh
+	if token.Expiry.Before(time.Now()) {
+		// Get OAuth2 config
+		config, err := GetOAuth2Config(defaultAppReg.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get OAuth2 config: %v", err)
+		}
+
+		// Use the refresh token to get a new access token
+		tokenSource := config.TokenSource(ctx, token)
+		newToken, err := tokenSource.Token()
+		if err != nil {
+			return nil, fmt.Errorf("failed to refresh token: %v", err)
+		}
+
+		// Save the new token
+		err = SaveOAuth2Token(ctx, defaultAppReg.ID, userID, newToken)
+		if err != nil {
+			return nil, fmt.Errorf("failed to save refreshed token: %v", err)
+		}
+
+		return newToken, nil
+	}
+
+	return token, nil
+}
+
+// SaveOAuthTokenDirect saves an OAuth token directly without requiring app registration
+func SaveOAuthTokenDirect(token *OAuthToken) error {
+	if err := token.Validate(); err != nil {
+		return fmt.Errorf("invalid token: %v", err)
+	}
+	return db.Create(token).Error
 }
