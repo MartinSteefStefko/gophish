@@ -30,10 +30,10 @@ func OAuth2Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get OAuth2 config from environment variables
-	tenantID := os.Getenv("OAUTH2_TENANT_ID")
+	tenantID := os.Getenv("OAUTH2_PROVIDER_TENANT_ID")
 	redirectURI := os.Getenv("OAUTH2_REDIRECT_URI")
-	clientID := os.Getenv("OAUTH2_CLIENT_ID")
-	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
+	clientID := os.Getenv("TEST_CLIENT_ID")
+	clientSecret := os.Getenv("TEST_CLIENT_SECRET")
 	if tenantID == "" || redirectURI == "" || clientID == "" || clientSecret == "" {
 		http.Error(w, "Missing OAuth2 configuration", http.StatusInternalServerError)
 		return
@@ -50,6 +50,7 @@ func OAuth2Login(w http.ResponseWriter, r *http.Request) {
 			"profile",
 			"email",
 			"offline_access",
+			"https://graph.microsoft.com/Mail.Send",
 		},
 	}
 
@@ -87,11 +88,11 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get OAuth2 config using environment variables
-	tenantID := os.Getenv("OAUTH2_TENANT_ID")
+	providerTenantID := os.Getenv("OAUTH2_PROVIDER_TENANT_ID")
 	redirectURI := os.Getenv("OAUTH2_REDIRECT_URI")
-	clientID := os.Getenv("OAUTH2_CLIENT_ID")
-	clientSecret := os.Getenv("OAUTH2_CLIENT_SECRET")
-	if tenantID == "" || redirectURI == "" || clientID == "" || clientSecret == "" {
+	clientID := os.Getenv("TEST_CLIENT_ID")
+	clientSecret := os.Getenv("TEST_CLIENT_SECRET")
+	if providerTenantID == "" || redirectURI == "" || clientID == "" || clientSecret == "" {
 		http.Error(w, "Missing OAuth2 configuration", http.StatusInternalServerError)
 		return
 	}
@@ -101,22 +102,36 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURI,
-		Endpoint:     microsoft.AzureADEndpoint(tenantID),
+		Endpoint:     microsoft.AzureADEndpoint(providerTenantID),
 		Scopes: []string{
 			"openid",
 			"profile",
 			"email",
 			"offline_access",
+			"https://graph.microsoft.com/Mail.Send",
+			"https://graph.microsoft.com/User.Read",
 		},
 	}
 
-	// Exchange the code for a token
+	// Get the authorization code
 	code := r.URL.Query().Get("code")
+	fmt.Printf("[OAuth2Callback] Authorization code received: %s\n", code)
+	fmt.Printf("[OAuth2Callback] Full callback URL: %s\n", r.URL.String())
+	fmt.Printf("[OAuth2Callback] All query parameters: %v\n", r.URL.Query())
+
+	if code == "" {
+		http.Error(w, "No authorization code received", http.StatusBadRequest)
+		return
+	}
+
+	// Exchange the code for a token
 	token, err := config.Exchange(context.Background(), code)
 	if err != nil {
+		fmt.Printf("[OAuth2Callback] Error exchanging code: %v\n", err)
 		http.Error(w, fmt.Sprintf("Error exchanging code for token: %v", err), http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[OAuth2Callback] Token exchange successful. Expires at: %v\n", token.Expiry)
 
 	// Get Microsoft Graph client
 	client := oauth2.NewClient(context.Background(), config.TokenSource(context.Background(), token))
@@ -125,6 +140,7 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	// Get user info from Microsoft Graph
 	resp, err := graphClient.Get("https://graph.microsoft.com/v1.0/me")
 	if err != nil {
+		fmt.Printf("[OAuth2Callback] Error getting user info: %v\n", err)
 		http.Error(w, fmt.Sprintf("Error getting user info: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -136,35 +152,45 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		ID          string `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		fmt.Printf("[OAuth2Callback] Error decoding user info: %v\n", err)
 		http.Error(w, fmt.Sprintf("Error decoding user info: %v", err), http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[OAuth2Callback] User info received: %+v\n", userInfo)
 
 	// Create or get user
 	user, err := models.GetOrCreateUser(userInfo.Mail, userInfo.DisplayName)
 	if err != nil {
+		fmt.Printf("[OAuth2Callback] Error getting/creating user: %v\n", err)
 		http.Error(w, fmt.Sprintf("Error getting/creating user: %v", err), http.StatusInternalServerError)
 		return
 	}
+	fmt.Printf("[OAuth2Callback] User ID: %d\n", user.Id)
 
 	// Try to get existing token first
-	existingToken, err := models.GetOAuthTokenByUserAndProviderTenant(user.Id, tenantID)
+	existingToken, err := models.GetOAuthTokenByUserAndProviderTenant(user.Id, providerTenantID)
 	if err == nil {
-		// Token exists, update it
+		fmt.Printf("[OAuth2Callback] Updating existing token for user %d\n", user.Id)
+		// Token exists, update it with new code and tokens
+		existingToken.AuthorizationCode = code // Save the authorization code before exchange
 		existingToken.AccessTokenEncrypted = token.AccessToken
 		existingToken.RefreshTokenEncrypted = token.RefreshToken
 		existingToken.ExpiresAt = token.Expiry
 		if err := existingToken.Update(); err != nil {
+			fmt.Printf("[OAuth2Callback] Error updating token: %v\n", err)
 			http.Error(w, fmt.Sprintf("Error updating token: %v", err), http.StatusInternalServerError)
 			return
 		}
+		fmt.Printf("[OAuth2Callback] Token updated successfully\n")
 	} else {
-		// Create new token
+		fmt.Printf("[OAuth2Callback] Creating new token for user %d\n", user.Id)
+		// Create new token with authorization code
 		oauthToken := &models.OAuthToken{
 			ID:                   uuid.New().String(),
 			UserID:              user.Id,
-			ProviderTenantID:    tenantID,
+			ProviderTenantID:   providerTenantID,
 			ProviderType:        "azure",
+			AuthorizationCode:   code, // Save the authorization code
 			AccessTokenEncrypted: token.AccessToken,
 			RefreshTokenEncrypted: token.RefreshToken,
 			ExpiresAt:           token.Expiry,
@@ -172,9 +198,11 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := models.SaveOAuthTokenDirect(oauthToken); err != nil {
+			fmt.Printf("[OAuth2Callback] Error saving new token: %v\n", err)
 			http.Error(w, fmt.Sprintf("Error saving token: %v", err), http.StatusInternalServerError)
 			return
 		}
+		fmt.Printf("[OAuth2Callback] New token saved successfully\n")
 	}
 
 	// Create or get existing tenant
@@ -210,12 +238,12 @@ func OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		ID:               uuid.New().String(),
 		TenantID:         tenant.ID,
 		ProviderType:     models.ProviderTypeAzure,
-		ProviderTenantID: tenantID, // From environment variable
+		ProviderTenantID: providerTenantID, // From environment variable
 		DisplayName:      "",
 	}
 
 	// Try to get existing provider tenant first
-	existingProviderTenant, err := models.GetProviderTenantByProviderTenantID(tenantID)
+	existingProviderTenant, err := models.GetProviderTenantByProviderTenantID(providerTenantID)
 	if err == nil {
 		// Provider tenant exists, use existing provider tenant
 		providerTenant = &existingProviderTenant

@@ -28,24 +28,19 @@ type TokenCache struct {
 }
 
 var (
-	// Global token cache map keyed by tenant ID
-	tokenCaches = make(map[string]*TokenCache)
-	// Mutex for the token cache map
-	tokenCachesMu sync.RWMutex
 	// Default token endpoint URL
 	defaultTokenEndpoint = "https://login.microsoftonline.com/%s/oauth2/v2.0/token"
 )
 
 // GraphAPISender implements the mailer.Sender interface for Microsoft Graph API
 type GraphAPISender struct {
-	client         *http.Client
-	tokenCache     *TokenCache
-	graphBaseURL   string
-	tokenEndpoint  string
-	clientID       string
-	clientSecret   string
-	tenantID       string
-	fromAddress    string
+	client            *http.Client
+	graphBaseURL      string
+	clientID          string
+	clientSecret      string
+	providerTenantID  string
+	fromAddress       string
+	userID            int64
 }
 
 // GraphAPI contains the attributes needed to handle sending campaign emails via Microsoft Graph API
@@ -58,9 +53,9 @@ type GraphAPI struct {
 	ModifiedDate  time.Time `json:"modified_date"`
 	InterfaceType string    `json:"interface_type" gorm:"column:interface_type"`
 	// Graph API credentials - populated from app_registration and provider_tenant
-	ClientID      string    `json:"client_id,omitempty" gorm:"-"`
-	ClientSecret  string    `json:"client_secret,omitempty" gorm:"-"`
-	TenantID      string    `json:"tenant_id,omitempty" gorm:"-"`
+	ClientID          string    `json:"client_id,omitempty" gorm:"-"`
+	ClientSecret      string    `json:"client_secret,omitempty" gorm:"-"`
+	ProviderTenantID  string    `json:"provider_tenant_id,omitempty" gorm:"-"`
 }
 
 // TableName specifies the database tablename for Gorm to use
@@ -70,6 +65,8 @@ func (g GraphAPI) TableName() string {
 
 // Validate ensures that Graph API configs are valid
 func (g *GraphAPI) Validate() error {
+	log.Infof("Validating GraphAPI config - User ID: %d", g.UserId)
+
 	if g.FromAddress == "" {
 		return ErrFromAddressNotSpecified
 	}
@@ -82,8 +79,27 @@ func (g *GraphAPI) Validate() error {
 		return errors.New("client_secret not specified")
 	}
 
-	if g.TenantID == "" {
-		return errors.New("tenant_id not specified")
+	// If provider tenant ID is not specified, try to get it from the user's tenant
+	if g.ProviderTenantID == "" {
+		log.Infof("Provider tenant ID not specified, looking up from user %d", g.UserId)
+		// Get the user to find their tenant
+		user, err := GetUser(g.UserId)
+		if err != nil {
+			log.Errorf("Failed to get user %d: %v", g.UserId, err)
+			return fmt.Errorf("failed to get user: %v", err)
+		}
+		log.Infof("Found user %d with tenant ID: %s", g.UserId, user.TenantID)
+
+		// Get the Microsoft provider tenant for this user's tenant
+		providerTenant, err := GetProviderTenantByType(user.TenantID, ProviderTypeAzure)
+		if err != nil {
+			log.Errorf("Failed to get provider tenant for tenant %s: %v", user.TenantID, err)
+			return fmt.Errorf("failed to get provider tenant: %v", err)
+		}
+		log.Infof("Found provider tenant: %s", providerTenant.ProviderTenantID)
+
+		// Set the provider tenant ID
+		g.ProviderTenantID = providerTenant.ProviderTenantID
 	}
 
 	// Validate the from address
@@ -91,16 +107,19 @@ func (g *GraphAPI) Validate() error {
 		return fmt.Errorf("invalid from_address: %v", err)
 	}
 
-	// Try to get a token to validate credentials
-	cache := getTokenCache(g.TenantID)
-	token, err := cache.GetToken(g.ClientID, g.ClientSecret, g.TenantID)
+	log.Infof("Getting OAuth token for user %d and provider tenant %s", g.UserId, g.ProviderTenantID)
+	// Get the OAuth token to validate we have access
+	token, err := GetOAuthTokenByUserAndProviderTenant(g.UserId, g.ProviderTenantID)
 	if err != nil {
-		return fmt.Errorf("failed to validate Graph API credentials: %v", err)
+		log.Errorf("Failed to get OAuth token for user %d: %v", g.UserId, err)
+		return fmt.Errorf("failed to get OAuth token: %v", err)
 	}
-	if token == "" {
-		return errors.New("failed to get valid token from Graph API")
+	if token.AuthorizationCode == "" {
+		log.Errorf("No authorization code found for user %d", g.UserId)
+		return errors.New("no authorization code found for Graph API")
 	}
 
+	log.Infof("Successfully validated GraphAPI config for user %d", g.UserId)
 	return nil
 }
 
@@ -111,10 +130,11 @@ func (g *GraphAPI) GetDialer() (mailer.Dialer, error) {
 	}
 
 	d := &GraphAPIDialer{
-		clientID:     g.ClientID,
-		clientSecret: g.ClientSecret,
-		tenantID:     g.TenantID,
-		fromAddress:  g.FromAddress,
+		clientID:          g.ClientID,
+		clientSecret:      g.ClientSecret,
+		providerTenantID:  g.ProviderTenantID,
+		fromAddress:       g.FromAddress,
+		userID:            g.UserId,
 	}
 
 	return d, nil
@@ -122,79 +142,35 @@ func (g *GraphAPI) GetDialer() (mailer.Dialer, error) {
 
 // GraphAPIDialer implements the mailer.Dialer interface for Microsoft Graph API
 type GraphAPIDialer struct {
-	clientID     string
-	clientSecret string
-	tenantID     string
-	fromAddress  string
-}
-
-// getTokenCache gets or creates a token cache for a tenant
-func getTokenCache(tenantID string) *TokenCache {
-	tokenCachesMu.RLock()
-	cache, exists := tokenCaches[tenantID]
-	tokenCachesMu.RUnlock()
-
-	if !exists {
-		cache = &TokenCache{}
-		tokenCachesMu.Lock()
-		tokenCaches[tenantID] = cache
-		tokenCachesMu.Unlock()
-	}
-
-	return cache
-}
-
-// GetToken returns a valid access token, either from cache or by requesting a new one
-func (c *TokenCache) GetToken(clientID, clientSecret, tenantID string) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Check if we have a valid cached token
-	if c.AccessToken != "" && time.Now().Before(c.ExpiresAt.Add(-5*time.Minute)) {
-		return c.AccessToken, nil
-	}
-
-	// Get a new token
-	token, expiresIn, err := getNewAccessToken(clientID, clientSecret, tenantID)
-	if err != nil {
-		return "", err
-	}
-
-	c.AccessToken = token
-	c.ExpiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
-
-	return token, nil
-}
-
-// Invalidate clears the cached token
-func (c *TokenCache) Invalidate() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.AccessToken = ""
-	c.ExpiresAt = time.Time{}
+	clientID          string
+	clientSecret      string
+	providerTenantID  string
+	fromAddress       string
+	userID            int64
 }
 
 // Dial creates a new GraphAPISender
 func (d *GraphAPIDialer) Dial() (mailer.Sender, error) {
-	cache := getTokenCache(d.tenantID)
-	
 	return &GraphAPISender{
-		client:       &http.Client{},
-		tokenCache:   cache,
-		graphBaseURL: "https://graph.microsoft.com/v1.0",
-		clientID:     d.clientID,
-		clientSecret: d.clientSecret,
-		tenantID:     d.tenantID,
-		fromAddress:  d.fromAddress,
+		client:            &http.Client{},
+		graphBaseURL:      "https://graph.microsoft.com/v1.0",
+		clientID:          d.clientID,
+		clientSecret:      d.clientSecret,
+		providerTenantID:  d.providerTenantID,
+		fromAddress:       d.fromAddress,
+		userID:            d.userID,
 	}, nil
 }
 
 // Send implements the Sender interface for GraphAPISender
 func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
-	token, err := s.tokenCache.GetToken(s.clientID, s.clientSecret, s.tenantID)
+	log.Infof("Sending email via Graph API - From: %s, User ID: %d", from, s.userID)
+
+	// Get a new access token using the authorization code
+	token, _, err := getNewAccessToken(s.clientID, s.clientSecret, s.providerTenantID, s.userID)
 	if err != nil {
-		return fmt.Errorf("error getting token: %v", err)
+		log.Errorf("Failed to get access token for user %d: %v", s.userID, err)
+		return fmt.Errorf("error getting token for user %d: %v", s.userID, err)
 	}
 
 	var buf bytes.Buffer
@@ -241,10 +217,10 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 
 	// Prepare the message
 	graphMessage.Message.Subject = subject
-	graphMessage.Message.Body.ContentType = "HTML" // Change to HTML to better support formatted emails
-	graphMessage.Message.Body.Content = messageStr // Use the full message content
+	graphMessage.Message.Body.ContentType = "HTML"
+	graphMessage.Message.Body.Content = messageStr
 	graphMessage.Message.From.EmailAddress.Address = s.fromAddress
-	graphMessage.SaveToSentItems = false // Set to false for application permissions
+	graphMessage.SaveToSentItems = false
 
 	for _, recipient := range to {
 		graphMessage.Message.ToRecipients = append(graphMessage.Message.ToRecipients, struct {
@@ -267,7 +243,6 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 	}
 
 	// For application permissions, we need to use a specific user's email address
-	// The fromAddress contains the email of the user we're sending as
 	userEmailEncoded := url.QueryEscape(s.fromAddress)
 	
 	// Use the /users/{email}/sendMail endpoint with the specific user
@@ -292,7 +267,6 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		s.tokenCache.Invalidate()
 		return errors.New("unauthorized: token invalid")
 	}
 
@@ -319,18 +293,37 @@ func (s *GraphAPISender) Reset() error {
 }
 
 // getNewAccessToken gets a new access token from Microsoft identity platform
-func getNewAccessToken(clientID, clientSecret, tenantID string) (string, int, error) {
+func getNewAccessToken(clientID, clientSecret, providerTenantID string, userID int64) (string, int, error) {
+	log.Infof("Getting new access token for user %d and provider tenant %s", userID, providerTenantID)
+	
+	if userID == 0 {
+		return "", 0, fmt.Errorf("invalid user ID: user ID cannot be 0")
+	}
+
+	// First, get the oauth token for this tenant
+	token, err := GetOAuthTokenByUserAndProviderTenant(userID, providerTenantID)
+	if err != nil {
+		log.Errorf("Failed to get OAuth token for user %d and provider tenant %s: %v", userID, providerTenantID, err)
+		return "", 0, fmt.Errorf("failed to get OAuth token for user %d: %v", userID, err)
+	}
+
+	if token == nil {
+		log.Errorf("No OAuth token found for user %d and provider tenant %s", userID, providerTenantID)
+		return "", 0, fmt.Errorf("no OAuth token found for user %d", userID)
+	}
+
 	data := url.Values{}
-	data.Set("grant_type", "client_credentials")
+	data.Set("grant_type", "authorization_code")
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
+	data.Set("code", token.AuthorizationCode)
 	data.Set("scope", "https://graph.microsoft.com/.default")
 
 	// Log the token request
-	log.Infof("Requesting token with client_id: %s, tenantID: %s, scope: %s", 
-		clientID, tenantID, "https://graph.microsoft.com/.default")
+	log.Infof("Requesting token with client_id: %s, providerTenantID: %s, scope: %s, code: %s", 
+		clientID, providerTenantID, "https://graph.microsoft.com/.default", token.AuthorizationCode)
 
-	tokenURL := fmt.Sprintf(defaultTokenEndpoint, tenantID)
+	tokenURL := fmt.Sprintf(defaultTokenEndpoint, providerTenantID)
 	resp, err := http.PostForm(tokenURL, data)
 	if err != nil {
 		return "", 0, fmt.Errorf("error requesting token: %v", err)

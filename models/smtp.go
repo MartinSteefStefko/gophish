@@ -95,8 +95,25 @@ func GetProviderTenantByType(tenantID string, providerType ProviderType) (*Provi
 // Validate ensures that SMTP configs/connections are valid
 func (s *SMTP) Validate() error {
 	// Debug logging
-	log.Infof("Validating SMTP profile - Interface: %s, Host: %s, FromAddress: %s", 
-		s.Interface, s.Host, s.FromAddress)
+	log.Infof("Validating SMTP profile - Interface: %s, Host: %s, FromAddress: %s, User ID: %d", 
+		s.Interface, s.Host, s.FromAddress, s.UserId)
+
+	// Ensure we have a valid user ID
+	if s.UserId == 0 {
+		// If we have an ID, try to get the user ID from the database
+		if s.Id != 0 {
+			var existingSmtp SMTP
+			err := db.Where("id = ?", s.Id).First(&existingSmtp).Error
+			if err != nil {
+				log.Errorf("Failed to get existing SMTP profile: %v", err)
+				return fmt.Errorf("failed to get user ID: SMTP profile not found")
+			}
+			s.UserId = existingSmtp.UserId
+			log.Infof("Retrieved user ID %d from existing SMTP profile", s.UserId)
+		} else {
+			return fmt.Errorf("user ID is required for validation")
+		}
+	}
 
 	// Always check for From Address
 	if s.FromAddress == "" {
@@ -105,18 +122,21 @@ func (s *SMTP) Validate() error {
 
 	// For Graph API interface, validate app registration
 	if s.Interface == "GRAPH" {
+		log.Infof("Validating Graph API interface for user %d", s.UserId)
+		
 		// Initialize provider tenant
 		var providerTenant ProviderTenant
 		
 		// If we have a provider tenant directly from the controller, use it
 		if s.ProviderTenant != nil {
-			log.Infof("Using provider tenant from context: %s (%s)", s.ProviderTenant.DisplayName, s.ProviderTenant.ID)
+			log.Infof("Using provider tenant from context: %s (%s) for user %d", 
+				s.ProviderTenant.DisplayName, s.ProviderTenant.ID, s.UserId)
 			providerTenant = *s.ProviderTenant
 		} else {
 			// Otherwise try to get it from the user
 			user, err := GetUser(s.UserId)
 			if err != nil {
-				log.Warnf("User not found for SMTP validation, proceeding without tenant context: %v", err)
+				log.Warnf("User not found for SMTP validation: %v", err)
 				// For updating existing profiles, continue without tenant context
 				if s.Id != 0 && s.AppRegistrationID != "" {
 					// For existing profiles with app registration, we can still validate
@@ -131,9 +151,11 @@ func (s *SMTP) Validate() error {
 							FromAddress:   s.FromAddress,
 							ClientID:      s.ClientID,
 							ClientSecret:  s.ClientSecret,
-							TenantID:      s.TenantID, // Use the tenant ID provided in the request
+							ProviderTenantID: s.ProviderTenant.ProviderTenantID,
 							InterfaceType: s.Interface,
+							UserId:        s.UserId,
 						}
+						log.Infof("Validating Graph API with direct credentials for user %d", s.UserId)
 						return g.Validate()
 					}
 					
@@ -142,9 +164,11 @@ func (s *SMTP) Validate() error {
 						FromAddress:   s.FromAddress,
 						ClientID:      appReg.ClientID,
 						ClientSecret:  appReg.ClientSecretEncrypted,
-						TenantID:      s.TenantID, // Use the tenant ID provided in the request
+						ProviderTenantID: s.ProviderTenant.ProviderTenantID,
 						InterfaceType: s.Interface,
+						UserId:        s.UserId,
 					}
+					log.Infof("Validating Graph API with app registration for user %d", s.UserId)
 					return g.Validate()
 				}
 				
@@ -176,16 +200,9 @@ func (s *SMTP) Validate() error {
 				ClientID:      appReg.ClientID,
 				ClientSecret:  appReg.ClientSecretEncrypted,
 				InterfaceType: s.Interface,
+				UserId:        s.UserId,  // Add the user ID
 			}
 			
-			// Use provider tenant ID if available, otherwise fallback to the one in the request
-			if providerTenant.ID != "" {
-				g.TenantID = providerTenant.ProviderTenantID
-			} else if s.TenantID != "" {
-				g.TenantID = s.TenantID
-			} else {
-				return fmt.Errorf("no tenant ID available for validation")
-			}
 			
 			// Delegate to GraphAPI's validation
 			return g.Validate()
@@ -229,16 +246,10 @@ func (s *SMTP) Validate() error {
 			ClientID:      s.ClientID,
 			ClientSecret:  s.ClientSecret,
 			InterfaceType: s.Interface,
+			ProviderTenantID: s.TenantID, // Add the tenant ID
+			UserId:        s.UserId,  // Add the user ID
 		}
 		
-		// Use provider tenant ID if available, otherwise fallback to the one in the request
-		if providerTenant.ID != "" {
-			g.TenantID = providerTenant.ProviderTenantID
-		} else if s.TenantID != "" {
-			g.TenantID = s.TenantID
-		} else {
-			return fmt.Errorf("no tenant ID available for validation")
-		}
 		
 		return g.Validate()
 	}
@@ -279,24 +290,41 @@ func validateFromAddress(email string) bool {
 
 // GetDialer returns a dialer that implements the Dialer interface
 func (s *SMTP) GetDialer() (mailer.Dialer, error) {
+	// Ensure we have a valid user ID
+	if s.UserId == 0 {
+		// If we have an ID, try to get the user ID from the database
+		if s.Id != 0 {
+			var existingSmtp SMTP
+			err := db.Where("id = ?", s.Id).First(&existingSmtp).Error
+			if err != nil {
+				log.Errorf("Failed to get existing SMTP profile: %v", err)
+				return nil, fmt.Errorf("failed to get user ID: SMTP profile not found")
+			}
+			s.UserId = existingSmtp.UserId
+			log.Infof("Retrieved user ID %d from existing SMTP profile", s.UserId)
+		} else {
+			return nil, fmt.Errorf("user ID is required for dialer")
+		}
+	}
+
 	// For Graph API interface, use GraphAPI's GetDialer method
 	if s.Interface == "GRAPH" {
-		log.Infof("Creating dialer for Graph API sending profile")
+		log.Infof("Creating dialer for Graph API sending profile - User ID: %d", s.UserId)
 		
 		// If we have temporary credentials (for test emails), use those directly
 		if s.ClientID != "" && s.ClientSecret != "" {
-			log.Infof("Using provided client credentials for Graph API")
+			log.Infof("Using provided client credentials for Graph API - User ID: %d", s.UserId)
 			
 			// Determine tenant ID to use
 			var tenantID string
 			
 			// Check if we have a provider tenant from context
 			if s.ProviderTenant != nil && s.ProviderTenant.ProviderTenantID != "" {
-				log.Infof("Using provider tenant ID from context: %s", s.ProviderTenant.ProviderTenantID)
+				log.Infof("Using provider tenant ID from context: %s, User ID: %d", s.ProviderTenant.ProviderTenantID, s.UserId)
 				tenantID = s.ProviderTenant.ProviderTenantID
 			} else if s.TenantID != "" {
 				// Try to get provider tenant from database using tenant ID
-				log.Infof("Looking up provider tenant for tenant ID: %s", s.TenantID)
+				log.Infof("Looking up provider tenant for tenant ID: %s, User ID: %d", s.TenantID, s.UserId)
 				providerTenant, err := GetProviderTenantByType(s.TenantID, ProviderTypeAzure)
 				if err != nil {
 					log.Warnf("Failed to find provider tenant for tenant ID %s: %v", s.TenantID, err)
@@ -320,9 +348,11 @@ func (s *SMTP) GetDialer() (mailer.Dialer, error) {
 				FromAddress:   s.FromAddress,
 				ClientID:      s.ClientID,
 				ClientSecret:  s.ClientSecret,
-				TenantID:      tenantID,
+				ProviderTenantID: tenantID,  // Use the tenantID we determined above
 				InterfaceType: s.Interface,
+				UserId:        s.UserId,  // Add the user ID
 			}
+			log.Infof("Created GraphAPI instance with User ID: %d", g.UserId)
 			return g.GetDialer()
 		}
 
@@ -342,9 +372,11 @@ func (s *SMTP) GetDialer() (mailer.Dialer, error) {
 			FromAddress:   s.FromAddress,
 			ClientID:      appReg.ClientID,
 			ClientSecret:  appReg.ClientSecretEncrypted,
-			TenantID:      providerTenant.ProviderTenantID,
+			ProviderTenantID:    providerTenant.ProviderTenantID,
 			InterfaceType: s.Interface,
+			UserId:        s.UserId,  // Add the user ID here too
 		}
+		log.Infof("Created GraphAPI instance with User ID: %d", g.UserId)
 		return g.GetDialer()
 	}
 

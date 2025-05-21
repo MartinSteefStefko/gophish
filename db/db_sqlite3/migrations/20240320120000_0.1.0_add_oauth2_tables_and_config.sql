@@ -36,9 +36,9 @@ INSERT INTO oauth2_config (
     modified_date
 ) VALUES (
     1, -- admin user ID
-    '${OAUTH2_CLIENT_ID}',
-    '${OAUTH2_CLIENT_SECRET}',
-    '${OAUTH2_TENANT_ID}',
+    '${TEST_CLIENT_ID}',
+    '${TEST_CLIENT_SECRET}',
+    '${OAUTH2_PROVIDER_TENANT_ID}',
     'https://localhost:3333/oauth2/callback',
     1,
     CURRENT_TIMESTAMP

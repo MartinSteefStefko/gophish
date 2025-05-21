@@ -1,11 +1,13 @@
 package models
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/oauth2"
 )
 
 // OAuthToken represents an OAuth token for a specific provider tenant
@@ -14,6 +16,7 @@ type OAuthToken struct {
 	UserID               int64     `gorm:"index:idx_user_provider,unique:user_provider"` // Unique constraint with provider_tenant_id
 	ProviderTenantID     string    `gorm:"type:text;index:idx_user_provider,unique:user_provider"` // Unique constraint with user_id
 	ProviderType         string    `gorm:"type:text"`
+	AuthorizationCode    string    `gorm:"type:text"` // Authorization code from OAuth flow
 	AccessTokenEncrypted string    `gorm:"type:text"`
 	RefreshTokenEncrypted string   `gorm:"type:text"`
 	ExpiresAt            time.Time `gorm:"type:timestamp"`
@@ -71,6 +74,7 @@ func (t *OAuthToken) Update() error {
 		"access_token_encrypted": t.AccessTokenEncrypted,
 		"refresh_token_encrypted": t.RefreshTokenEncrypted,
 		"expires_at": t.ExpiresAt,
+		"authorization_code": t.AuthorizationCode,
 	}).Error
 }
 
@@ -135,4 +139,96 @@ func GetOAuthTokenByUserAndProviderTenant(userID int64, providerTenantID string)
 		return nil, fmt.Errorf("OAuth token not found: %v", err)
 	}
 	return token, nil
+}
+
+// IsExpired checks if the token is expired or about to expire (within 5 minutes)
+func (t *OAuthToken) IsExpired() bool {
+	return time.Now().UTC().Add(5 * time.Minute).After(t.ExpiresAt)
+}
+
+// RefreshToken refreshes the OAuth token using the refresh token
+func (t *OAuthToken) RefreshToken(config *oauth2.Config) error {
+	if t.RefreshTokenEncrypted == "" {
+		return errors.New("no refresh token available")
+	}
+
+	token := &oauth2.Token{
+		RefreshToken: t.RefreshTokenEncrypted,
+	}
+
+	// Get new token
+	newToken, err := config.TokenSource(context.Background(), token).Token()
+	if err != nil {
+		return fmt.Errorf("error refreshing token: %v", err)
+	}
+
+	// Update token fields
+	t.AccessTokenEncrypted = newToken.AccessToken
+	if newToken.RefreshToken != "" {
+		t.RefreshTokenEncrypted = newToken.RefreshToken
+	}
+	t.ExpiresAt = newToken.Expiry
+
+	// Save to database
+	return t.Update()
+}
+
+// GetValidToken returns a valid OAuth2 token, refreshing if necessary
+func (t *OAuthToken) GetValidToken(config *oauth2.Config) (*oauth2.Token, error) {
+	if t.IsExpired() {
+		if err := t.RefreshToken(config); err != nil {
+			return nil, fmt.Errorf("error refreshing expired token: %v", err)
+		}
+	}
+
+	return &oauth2.Token{
+		AccessToken:  t.AccessTokenEncrypted,
+		RefreshToken: t.RefreshTokenEncrypted,
+		Expiry:      t.ExpiresAt,
+		TokenType:   "Bearer",
+	}, nil
+}
+
+// GetTokenForGraph returns a token suitable for Graph API calls using authorization code flow
+func (t *OAuthToken) GetTokenForGraph(config *oauth2.Config) (*oauth2.Token, error) {
+	// If we have a valid access token, use it
+	if !t.IsExpired() {
+		return &oauth2.Token{
+			AccessToken:  t.AccessTokenEncrypted,
+			RefreshToken: t.RefreshTokenEncrypted,
+			Expiry:      t.ExpiresAt,
+			TokenType:   "Bearer",
+		}, nil
+	}
+
+	// If we have a refresh token, try to use it
+	if t.RefreshTokenEncrypted != "" {
+		token, err := t.GetValidToken(config)
+		if err == nil {
+			return token, nil
+		}
+		// If refresh fails, fall through to authorization code
+	}
+
+	// If we have an authorization code, exchange it for a new token
+	if t.AuthorizationCode != "" {
+		token, err := config.Exchange(context.Background(), t.AuthorizationCode)
+		if err != nil {
+			return nil, fmt.Errorf("error exchanging authorization code: %v", err)
+		}
+
+		// Update token fields
+		t.AccessTokenEncrypted = token.AccessToken
+		t.RefreshTokenEncrypted = token.RefreshToken
+		t.ExpiresAt = token.Expiry
+
+		// Save to database
+		if err := t.Update(); err != nil {
+			return nil, fmt.Errorf("error saving new token: %v", err)
+		}
+
+		return token, nil
+	}
+
+	return nil, errors.New("no valid token or authorization code available")
 }

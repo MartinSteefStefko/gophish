@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -70,12 +69,11 @@ func TestGraphAPIIntegrationSendMail(t *testing.T) {
 
 	t.Run("Successful_Send", func(t *testing.T) {
 		sender := &GraphAPISender{
-			client:       &http.Client{},
-			tokenCache:   &TokenCache{},
-			graphBaseURL: graphServer.URL,
-			clientID:     "client",
-			clientSecret: "secret",
-			tenantID:     "tenant",
+			client:            &http.Client{},
+			graphBaseURL:      graphServer.URL,
+			clientID:          "client",
+			clientSecret:      "secret",
+			providerTenantID:  "tenant",
 		}
 
 		msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}
@@ -85,12 +83,11 @@ func TestGraphAPIIntegrationSendMail(t *testing.T) {
 
 	t.Run("Token_Refresh", func(t *testing.T) {
 		sender := &GraphAPISender{
-			client:       &http.Client{},
-			tokenCache:   &TokenCache{AccessToken: "old_token", ExpiresAt: time.Now().Add(-1 * time.Hour)},
-			graphBaseURL: graphServer.URL,
-			clientID:     "client",
-			clientSecret: "secret",
-			tenantID:     "tenant",
+			client:            &http.Client{},
+			graphBaseURL:      graphServer.URL,
+			clientID:          "client",
+			clientSecret:      "secret",
+			providerTenantID:  "tenant",
 		}
 
 		msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}
@@ -100,12 +97,11 @@ func TestGraphAPIIntegrationSendMail(t *testing.T) {
 
 	t.Run("Invalid_Token", func(t *testing.T) {
 		sender := &GraphAPISender{
-			client:       &http.Client{},
-			tokenCache:   &TokenCache{AccessToken: "invalid_token", ExpiresAt: time.Now().Add(1 * time.Hour)},
-			graphBaseURL: graphServer.URL,
-			clientID:     "client",
-			clientSecret: "secret",
-			tenantID:     "tenant",
+			client:            &http.Client{},
+			graphBaseURL:      graphServer.URL,
+			clientID:          "client",
+			clientSecret:      "secret",
+			providerTenantID:  "tenant",
 		}
 
 		msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}
@@ -124,12 +120,11 @@ func TestGraphAPIIntegrationConcurrentSend(t *testing.T) {
 	defaultTokenEndpoint = tokenServer.URL + "?tenant_id=%s"
 
 	sender := &GraphAPISender{
-		client:       &http.Client{},
-		tokenCache:   &TokenCache{},
-		graphBaseURL: graphServer.URL,
-		clientID:     "client",
-		clientSecret: "secret",
-		tenantID:     "tenant",
+		client:            &http.Client{},
+		graphBaseURL:      graphServer.URL,
+		clientID:          "client",
+		clientSecret:      "secret",
+		providerTenantID:  "tenant",
 	}
 
 	msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}
@@ -161,12 +156,11 @@ func TestGraphAPIIntegrationRateLimiting(t *testing.T) {
 	defer rateLimitedServer.Close()
 
 	sender := &GraphAPISender{
-		client:       &http.Client{},
-		tokenCache:   &TokenCache{},
-		graphBaseURL: rateLimitedServer.URL,
-		clientID:     "client",
-		clientSecret: "secret",
-		tenantID:     "tenant",
+		client:            &http.Client{},
+		graphBaseURL:      rateLimitedServer.URL,
+		clientID:          "client",
+		clientSecret:      "secret",
+		providerTenantID:  "tenant",
 	}
 
 	msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}

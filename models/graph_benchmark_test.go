@@ -39,9 +39,8 @@ func BenchmarkGraphAPISend(b *testing.B) {
 	defer server.Close()
 
 	sender := &GraphAPISender{
-		client:       http.DefaultClient,
-		tokenCache:   &TokenCache{AccessToken: "test_token", ExpiresAt: time.Now().Add(1 * time.Hour)},
-		graphBaseURL: server.URL,
+		client:            http.DefaultClient,
+		graphBaseURL:      server.URL,
 	}
 
 	msg := &mockMessage{content: "benchmark test message"}
@@ -60,9 +59,8 @@ func BenchmarkGraphAPIConcurrentSend(b *testing.B) {
 	defer server.Close()
 
 	sender := &GraphAPISender{
-		client:       http.DefaultClient,
-		tokenCache:   &TokenCache{AccessToken: "test_token", ExpiresAt: time.Now().Add(1 * time.Hour)},
-		graphBaseURL: server.URL,
+		client:            http.DefaultClient,
+		graphBaseURL:      server.URL,
 	}
 
 	msg := &mockMessage{content: "benchmark test message"}
@@ -116,9 +114,8 @@ func BenchmarkGraphAPIBurst(b *testing.B) {
 	defer server.Close()
 
 	sender := &GraphAPISender{
-		client:       http.DefaultClient,
-		tokenCache:   &TokenCache{AccessToken: "test_token", ExpiresAt: time.Now().Add(1 * time.Hour)},
-		graphBaseURL: server.URL,
+		client:            http.DefaultClient,
+		graphBaseURL:      server.URL,
 	}
 
 	msg := &mockMessage{content: "benchmark test message"}

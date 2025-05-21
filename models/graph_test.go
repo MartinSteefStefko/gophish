@@ -7,14 +7,13 @@ import (
 	"net/http/httptest"
 	"net/mail"
 	"strings"
-	"sync"
 	"testing"
-	"time"
+
+	"errors"
 
 	"github.com/gophish/gomail"
 	"github.com/gophish/gophish/mailer"
 	"github.com/stretchr/testify/assert"
-	"errors"
 )
 
 // mockMessage implements mailer.Mail for testing
@@ -120,60 +119,7 @@ func setupMockTokenEndpoint() *httptest.Server {
 	}))
 }
 
-func TestTokenCache(t *testing.T) {
-	mockServer := setupMockTokenEndpoint()
-	defer mockServer.Close()
 
-	// Override default token endpoint
-	defaultTokenEndpoint = mockServer.URL + "?tenant_id=%s"
-
-	t.Run("GetToken_CacheHit", func(t *testing.T) {
-		cache := &TokenCache{}
-		token, err := cache.GetToken("client", "secret", "tenant")
-		assert.NoError(t, err)
-		assert.NotEmpty(t, token)
-
-		// Second call should hit cache
-		token2, err := cache.GetToken("client", "secret", "tenant")
-		assert.NoError(t, err)
-		assert.Equal(t, token, token2)
-	})
-
-	t.Run("GetToken_CacheExpired", func(t *testing.T) {
-		cache := &TokenCache{
-			AccessToken: "old_token",
-			ExpiresAt:   time.Now().Add(-1 * time.Hour),
-		}
-		token, err := cache.GetToken("client", "secret", "tenant")
-		assert.NoError(t, err)
-		assert.NotEqual(t, "old_token", token)
-	})
-
-	t.Run("GetToken_Concurrent", func(t *testing.T) {
-		cache := &TokenCache{}
-		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				token, err := cache.GetToken("client", "secret", "tenant")
-				assert.NoError(t, err)
-				assert.NotEmpty(t, token)
-			}()
-		}
-		wg.Wait()
-	})
-
-	t.Run("Invalidate", func(t *testing.T) {
-		cache := &TokenCache{
-			AccessToken: "token",
-			ExpiresAt:   time.Now().Add(1 * time.Hour),
-		}
-		cache.Invalidate()
-		assert.Empty(t, cache.AccessToken)
-		assert.True(t, cache.ExpiresAt.IsZero())
-	})
-}
 
 func TestGraphAPISender(t *testing.T) {
 	mockServer := setupMockTokenEndpoint()
@@ -200,12 +146,11 @@ func TestGraphAPISender(t *testing.T) {
 
 	t.Run("Send_Success", func(t *testing.T) {
 		sender := &GraphAPISender{
-			client:       &http.Client{},
-			tokenCache:   &TokenCache{},
-			graphBaseURL: graphServer.URL,
-			clientID:     "client",
-			clientSecret: "secret",
-			tenantID:     "tenant",
+			client:            &http.Client{},
+			graphBaseURL:      graphServer.URL,
+			clientID:          "client",
+			clientSecret:      "secret",
+			providerTenantID:  "tenant",
 		}
 
 		msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}
@@ -215,12 +160,11 @@ func TestGraphAPISender(t *testing.T) {
 
 	t.Run("Send_UnauthorizedRefresh", func(t *testing.T) {
 		sender := &GraphAPISender{
-			client:       &http.Client{},
-			tokenCache:   &TokenCache{AccessToken: "old_token", ExpiresAt: time.Now().Add(-1 * time.Hour)},
-			graphBaseURL: graphServer.URL,
-			clientID:     "wrong_client",
-			clientSecret: "wrong_secret",
-			tenantID:     "tenant",
+			client:            &http.Client{},
+			graphBaseURL:      graphServer.URL,
+			clientID:          "wrong_client",
+			clientSecret:      "wrong_secret",
+			providerTenantID:  "tenant",
 		}
 
 		msg := &mockMessage{content: "Subject: Test\nContent-Type: text/plain\n\nTest body"}
@@ -231,12 +175,11 @@ func TestGraphAPISender(t *testing.T) {
 
 	t.Run("Send_Error", func(t *testing.T) {
 		sender := &GraphAPISender{
-			client:       &http.Client{},
-			tokenCache:   &TokenCache{},
-			graphBaseURL: graphServer.URL + "/error",
-			clientID:     "client",
-			clientSecret: "secret",
-			tenantID:     "tenant",
+			client:            &http.Client{},
+			graphBaseURL:      graphServer.URL + "/error",
+			clientID:          "client",
+			clientSecret:      "secret",
+			providerTenantID:  "tenant",
 		}
 
 		msg := &mockMessage{content: "Invalid message"}
