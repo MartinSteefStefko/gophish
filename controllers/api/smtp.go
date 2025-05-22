@@ -40,6 +40,28 @@ func (as *Server) SendingProfiles(w http.ResponseWriter, r *http.Request) {
 		}
 		s.ModifiedDate = time.Now().UTC()
 		s.UserId = ctx.Get(r, "user_id").(int64)
+
+		// For Graph API profiles, get provider tenant from user context
+		if s.Interface == "GRAPH" {
+			if user := ctx.Get(r, "user"); user != nil {
+				if u, ok := user.(models.User); ok {
+					log.Infof("Found user in context for Graph API profile - ID: %d, Tenant ID: %s", u.Id, u.TenantID)
+					
+					// Check if we have a provider tenant
+					if len(u.ProviderTenants) > 0 {
+						for _, pt := range u.ProviderTenants {
+							if pt.ProviderType == models.ProviderTypeAzure {
+								log.Infof("Found Azure provider tenant for user: %s (%s)", 
+									pt.DisplayName, pt.ProviderTenantID)
+								s.ProviderTenant = pt
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
 		err = models.PostSMTP(&s)
 		if err != nil {
 			JSONResponse(w, models.Response{Success: false, Message: err.Error()}, http.StatusInternalServerError)
@@ -82,6 +104,27 @@ func (as *Server) SendingProfile(w http.ResponseWriter, r *http.Request) {
 		
 		// Set user context information
 		s.UserId = ctx.Get(r, "user_id").(int64)
+		
+		// For Graph API profiles, get provider tenant from user context
+		if s.Interface == "GRAPH" {
+			if user := ctx.Get(r, "user"); user != nil {
+				if u, ok := user.(models.User); ok {
+					log.Infof("Found user in context for Graph API profile - ID: %d, Tenant ID: %s", u.Id, u.TenantID)
+					
+					// Check if we have a provider tenant
+					if len(u.ProviderTenants) > 0 {
+						for _, pt := range u.ProviderTenants {
+							if pt.ProviderType == models.ProviderTypeAzure {
+								log.Infof("Found Azure provider tenant for user: %s (%s)", 
+									pt.DisplayName, pt.ProviderTenantID)
+								s.ProviderTenant = pt
+								break
+							}
+						}
+					}
+				}
+			}
+		}
 		
 		// Get user from context and log what we find
 		log.Infof("Processing SMTP profile update for user_id: %d", s.UserId)
