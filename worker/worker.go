@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	log "github.com/gophish/gophish/logger"
@@ -113,6 +114,29 @@ func (w *DefaultWorker) Start() {
 	}
 }
 
+// getAzureProviderTenantForUser gets the Azure provider tenant for a user
+func getAzureProviderTenantForUser(userID int64) (*models.ProviderTenant, error) {
+	// Get the user to get their provider tenants
+	user, err := models.GetUser(userID)
+	if err != nil {
+		log.Errorf("Failed to get user %d: %v", userID, err)
+		return nil, err
+	}
+
+	// Find the Azure provider tenant
+	for _, pt := range user.ProviderTenants {
+		if pt.ProviderType == models.ProviderTypeAzure {
+			log.Infof("Found Azure provider tenant for user %d: %s (%s)", 
+				userID, pt.DisplayName, pt.ProviderTenantID)
+			return pt, nil
+		}
+	}
+
+	err = fmt.Errorf("no Azure provider tenant found for user %d", userID)
+	log.Error(err)
+	return nil, err
+}
+
 // LaunchCampaign starts a campaign
 func (w *DefaultWorker) LaunchCampaign(c models.Campaign) {
 	ms, err := models.GetMailLogsByCampaign(c.Id)
@@ -130,6 +154,19 @@ func (w *DefaultWorker) LaunchCampaign(c models.Campaign) {
 		log.Error(err)
 		return
 	}
+
+	// If this is a Graph API profile, get the provider tenant
+	if campaignMailCtx.SMTP.Interface == "GRAPH" {
+		pt, err := getAzureProviderTenantForUser(c.UserId)
+		if err != nil {
+			log.Errorf("Failed to get Azure provider tenant for campaign %d: %v", c.Id, err)
+			return
+		}
+		campaignMailCtx.SMTP.ProviderTenant = pt
+		log.Infof("Using provider tenant for campaign %d: %s (%s)", 
+			c.Id, pt.DisplayName, pt.ProviderTenantID)
+	}
+
 	for _, m := range ms {
 		// Only send the emails scheduled to be sent for the past minute to
 		// respect the campaign scheduling options
@@ -152,11 +189,19 @@ func (w *DefaultWorker) SendTestEmail(s *models.EmailRequest) error {
 	// Log request details
 	if s.SMTP.Interface == "GRAPH" {
 		log.Infof("Processing Graph API test email request. From: %s", s.SMTP.FromAddress)
-		if s.SMTP.ProviderTenant != nil {
-			log.Infof("Provider tenant information: ID=%s, Type=%s, ProviderTenantID=%s", 
-				s.SMTP.ProviderTenant.ID, s.SMTP.ProviderTenant.ProviderType, s.SMTP.ProviderTenant.ProviderTenantID)
+		
+		// If provider tenant not set from context, get it from user
+		if s.SMTP.ProviderTenant == nil {
+			pt, err := getAzureProviderTenantForUser(s.UserId)
+			if err != nil {
+				return err
+			}
+			s.SMTP.ProviderTenant = pt
+			log.Infof("Using provider tenant for test email: %s (%s)", 
+				pt.DisplayName, pt.ProviderTenantID)
 		} else {
-			log.Infof("No provider tenant in request, will attempt to get from user context")
+			log.Infof("Using provider tenant from context: ID=%s, Type=%s, ProviderTenantID=%s", 
+				s.SMTP.ProviderTenant.ID, s.SMTP.ProviderTenant.ProviderType, s.SMTP.ProviderTenant.ProviderTenantID)
 		}
 	}
 	
