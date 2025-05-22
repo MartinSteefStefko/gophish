@@ -227,4 +227,18 @@ func GetAppRegistrations() ([]*AppRegistration, error) {
 		}
 	}
 	return activeAppRegs, nil
+}
+
+// GetAppRegistrationByProviderTenant retrieves an app registration by provider tenant ID
+func GetAppRegistrationByProviderTenant(providerTenantID string) (*AppRegistration, error) {
+	if providerTenantID == "" {
+		return nil, fmt.Errorf("provider tenant ID cannot be empty")
+	}
+	
+	appReg := &AppRegistration{}
+	err := db.Where("provider_tenant_id = ?", providerTenantID).First(appReg).Error
+	if err != nil {
+		return nil, fmt.Errorf("app registration not found: %v", err)
+	}
+	return appReg, nil
 } 

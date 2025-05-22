@@ -319,16 +319,24 @@ func getNewAccessToken(clientID, clientSecret, providerTenantID string, userID i
 		return "", 0, fmt.Errorf("no OAuth token found for user %d", userID)
 	}
 
+	// Get the app registration for this provider tenant
+	appReg, err := GetAppRegistrationByProviderTenant(providerTenantID)
+	if err != nil {
+		log.Errorf("Failed to get app registration for provider tenant %s: %v", providerTenantID, err)
+		return "", 0, fmt.Errorf("failed to get app registration: %v", err)
+	}
+
 	data := url.Values{}
-	data.Set("grant_type", "authorization_code")
+	data.Set("grant_type", "refresh_token")
 	data.Set("client_id", clientID)
 	data.Set("client_secret", clientSecret)
-	data.Set("code", token.AuthorizationCode)
+	data.Set("refresh_token", token.RefreshTokenEncrypted)
 	data.Set("scope", "https://graph.microsoft.com/.default")
+	data.Set("redirect_uri", appReg.RedirectURI)
 
 	// Log the token request
-	log.Infof("Requesting token with client_id: %s, providerTenantID: %s, scope: %s, code: %s", 
-		clientID, providerTenantID, "https://graph.microsoft.com/.default", token.AuthorizationCode)
+	log.Infof("Requesting token refresh with client_id: %s, providerTenantID: %s, scope: %s", 
+		clientID, providerTenantID, "https://graph.microsoft.com/.default")
 
 	tokenURL := fmt.Sprintf(defaultTokenEndpoint, providerTenantID)
 	resp, err := http.PostForm(tokenURL, data)
@@ -353,7 +361,15 @@ func getNewAccessToken(clientID, clientSecret, providerTenantID string, userID i
 		return "", 0, fmt.Errorf("error decoding token response: %v", err)
 	}
 
-	log.Infof("Successfully acquired token. Type: %s, Expires in: %d seconds", 
+	// Update the token in the database
+	token.AccessTokenEncrypted = result.AccessToken
+	token.ExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+	if err := token.Update(); err != nil {
+		log.Errorf("Failed to update token in database: %v", err)
+		return "", 0, fmt.Errorf("failed to update token: %v", err)
+	}
+
+	log.Infof("Successfully refreshed token. Type: %s, Expires in: %d seconds", 
 		result.TokenType, result.ExpiresIn)
 	
 	if result.Scope != "" {
