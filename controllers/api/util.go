@@ -87,6 +87,10 @@ func (as *Server) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 		if u, ok := user.(models.User); ok {
 			log.Infof("User details - ID: %d, Tenant ID: %s", u.Id, u.TenantID)
 			
+			// Set user ID and tenant ID
+			s.UserId = u.Id
+			s.SMTP.UserId = u.Id  // Ensure SMTP has user ID set
+			
 			// Set tenant ID if available
 			if u.TenantID != "" {
 				s.SMTP.TenantID = u.TenantID

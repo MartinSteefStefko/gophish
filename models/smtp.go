@@ -124,100 +124,40 @@ func (s *SMTP) Validate() error {
 	if s.Interface == "GRAPH" {
 		log.Infof("Validating Graph API interface for user %d", s.UserId)
 		
-		// Initialize provider tenant
-		var providerTenant ProviderTenant
-		
-		// If we have a provider tenant directly from the controller, use it
+		// If we have a provider tenant from context, use it
 		if s.ProviderTenant != nil {
 			log.Infof("Using provider tenant from context: %s (%s) for user %d", 
 				s.ProviderTenant.DisplayName, s.ProviderTenant.ID, s.UserId)
-			providerTenant = *s.ProviderTenant
-		} else {
-			// Otherwise try to get it from the user
-			user, err := GetUser(s.UserId)
-			if err != nil {
-				log.Warnf("User not found for SMTP validation: %v", err)
-				// For updating existing profiles, continue without tenant context
-				if s.Id != 0 && s.AppRegistrationID != "" {
-					// For existing profiles with app registration, we can still validate
-					appReg, err := GetAppRegistration(s.AppRegistrationID)
-					if err != nil {
-						return fmt.Errorf("Invalid App Registration: %v", err)
-					}
-					
-					// If we can't get the provider tenant directly, we'll use the client credentials directly
-					if s.ClientID != "" && s.ClientSecret != "" {
-						g := GraphAPI{
-							FromAddress:   s.FromAddress,
-							ClientID:      s.ClientID,
-							ClientSecret:  s.ClientSecret,
-							ProviderTenantID: s.ProviderTenant.ProviderTenantID,
-							InterfaceType: s.Interface,
-							UserId:        s.UserId,
-						}
-						log.Infof("Validating Graph API with direct credentials for user %d", s.UserId)
-						return g.Validate()
-					}
-					
-					// Otherwise, use the app registration
-					g := GraphAPI{
-						FromAddress:   s.FromAddress,
-						ClientID:      appReg.ClientID,
-						ClientSecret:  appReg.ClientSecretEncrypted,
-						ProviderTenantID: s.ProviderTenant.ProviderTenantID,
-						InterfaceType: s.Interface,
-						UserId:        s.UserId,
-					}
-					log.Infof("Validating Graph API with app registration for user %d", s.UserId)
-					return g.Validate()
+
+			// If we have an app registration ID, validate through that
+			if s.AppRegistrationID != "" {
+				// Get and validate the app registration
+				appReg, err := GetAppRegistration(s.AppRegistrationID)
+				if err != nil {
+					return fmt.Errorf("Invalid App Registration: %v", err)
 				}
 				
-				// For new profiles, we need tenant info - return error
-				if s.Id == 0 {
-					return fmt.Errorf("failed to get user tenant information: %v", err)
+				// Create a GraphAPI instance with the app registration details
+				g := GraphAPI{
+					FromAddress:    s.FromAddress,
+					ClientID:       appReg.ClientID,
+					ClientSecret:   appReg.ClientSecretEncrypted,
+					InterfaceType: s.Interface,
+					UserId:        s.UserId,
+					ProviderTenant: s.ProviderTenant,  // Pass provider tenant from context
 				}
-			} else if user.TenantID != "" {
-				// If we have a user with tenant, get the provider tenant
-				err = db.Where("tenant_id = ? AND provider_type = ?", user.TenantID, ProviderTypeAzure).First(&providerTenant).Error
-				if err != nil {
-					log.Warnf("Provider tenant not found for user tenant %s: %v", user.TenantID, err)
-					// Continue without provider tenant - use client credentials directly
-				}
+				
+				return g.Validate()
 			}
-		}
 
-		// If we have an app registration ID, validate through that
-		if s.AppRegistrationID != "" {
-			// Get and validate the app registration
-			appReg, err := GetAppRegistration(s.AppRegistrationID)
-			if err != nil {
-				return fmt.Errorf("Invalid App Registration: %v", err)
+			// For new profiles without app registration
+			if s.ClientID == "" || s.ClientSecret == "" {
+				return errors.New("client_id and client_secret are required for Graph API")
 			}
 			
-			// Create a GraphAPI instance with the app registration details
-			g := GraphAPI{
-				FromAddress:   s.FromAddress,
-				ClientID:      appReg.ClientID,
-				ClientSecret:  appReg.ClientSecretEncrypted,
-				InterfaceType: s.Interface,
-				UserId:        s.UserId,  // Add the user ID
-			}
-			
-			
-			// Delegate to GraphAPI's validation
-			return g.Validate()
-		}
-
-		// For new profiles without app registration
-		if s.ClientID == "" || s.ClientSecret == "" {
-			return errors.New("client_id and client_secret are required for Graph API")
-		}
-		
-		// If we have a provider tenant, create an app registration
-		if providerTenant.ID != "" {
 			// Create a new app registration with the tenant ID from the provider tenant
 			appReg := &AppRegistration{
-				ProviderTenantID:      providerTenant.ID,
+				ProviderTenantID:      s.ProviderTenant.ID,
 				ClientID:              s.ClientID,
 				ClientSecretEncrypted: s.ClientSecret,
 				RedirectURI:           "https://localhost:3333",
@@ -238,20 +178,21 @@ func (s *SMTP) Validate() error {
 			
 			// Set the app registration ID in the SMTP profile
 			s.AppRegistrationID = appReg.ID
-		}
 
-		// Create a GraphAPI instance for validation
-		g := GraphAPI{
-			FromAddress:   s.FromAddress,
-			ClientID:      s.ClientID,
-			ClientSecret:  s.ClientSecret,
-			InterfaceType: s.Interface,
-			ProviderTenantID: s.TenantID, // Add the tenant ID
-			UserId:        s.UserId,  // Add the user ID
+			// Create a GraphAPI instance for validation
+			g := GraphAPI{
+				FromAddress:    s.FromAddress,
+				ClientID:       s.ClientID,
+				ClientSecret:   s.ClientSecret,
+				InterfaceType: s.Interface,
+				UserId:        s.UserId,
+				ProviderTenant: s.ProviderTenant,  // Pass provider tenant from context
+			}
+			
+			return g.Validate()
+		} else {
+			return fmt.Errorf("provider tenant context is required for Graph API validation")
 		}
-		
-		
-		return g.Validate()
 	}
 
 	// SMTP-specific validation
@@ -315,66 +256,36 @@ func (s *SMTP) GetDialer() (mailer.Dialer, error) {
 		if s.ClientID != "" && s.ClientSecret != "" {
 			log.Infof("Using provided client credentials for Graph API - User ID: %d", s.UserId)
 			
-			// Determine tenant ID to use
-			var tenantID string
-			
 			// Check if we have a provider tenant from context
-			if s.ProviderTenant != nil && s.ProviderTenant.ProviderTenantID != "" {
-				log.Infof("Using provider tenant ID from context: %s, User ID: %d", s.ProviderTenant.ProviderTenantID, s.UserId)
-				tenantID = s.ProviderTenant.ProviderTenantID
-			} else if s.TenantID != "" {
-				// Try to get provider tenant from database using tenant ID
-				log.Infof("Looking up provider tenant for tenant ID: %s, User ID: %d", s.TenantID, s.UserId)
-				providerTenant, err := GetProviderTenantByType(s.TenantID, ProviderTypeAzure)
-				if err != nil {
-					log.Warnf("Failed to find provider tenant for tenant ID %s: %v", s.TenantID, err)
-					if s.TenantID != "" {
-						// Use provided tenant ID as fallback
-						log.Infof("Using tenant ID as fallback: %s", s.TenantID)
-						tenantID = s.TenantID
-					}
-				} else {
-					log.Infof("Found provider tenant: %s", providerTenant.ProviderTenantID)
-					tenantID = providerTenant.ProviderTenantID
-				}
-			}
-			
-			// Check if we have a tenant ID
-			if tenantID == "" {
-				return nil, fmt.Errorf("no tenant ID available for Graph API")
+			if s.ProviderTenant == nil {
+				return nil, fmt.Errorf("provider tenant context is required for Graph API dialer")
 			}
 			
 			g := GraphAPI{
-				FromAddress:   s.FromAddress,
-				ClientID:      s.ClientID,
-				ClientSecret:  s.ClientSecret,
-				ProviderTenantID: tenantID,  // Use the tenantID we determined above
+				FromAddress:    s.FromAddress,
+				ClientID:       s.ClientID,
+				ClientSecret:   s.ClientSecret,
 				InterfaceType: s.Interface,
-				UserId:        s.UserId,  // Add the user ID
+				UserId:        s.UserId,
+				ProviderTenant: s.ProviderTenant,  // Pass provider tenant from context
 			}
 			log.Infof("Created GraphAPI instance with User ID: %d", g.UserId)
 			return g.GetDialer()
 		}
 
-		// Otherwise, get the app registration and provider tenant details
+		// Otherwise, get the app registration
 		appReg, err := GetAppRegistration(s.AppRegistrationID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get app registration: %v", err)
 		}
 
-		// Get provider tenant details
-		providerTenant, err := GetProviderTenant(appReg.ProviderTenantID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get provider tenant: %v", err)
-		}
-
 		g := GraphAPI{
-			FromAddress:   s.FromAddress,
-			ClientID:      appReg.ClientID,
-			ClientSecret:  appReg.ClientSecretEncrypted,
-			ProviderTenantID:    providerTenant.ProviderTenantID,
+			FromAddress:    s.FromAddress,
+			ClientID:       appReg.ClientID,
+			ClientSecret:   appReg.ClientSecretEncrypted,
 			InterfaceType: s.Interface,
-			UserId:        s.UserId,  // Add the user ID here too
+			UserId:        s.UserId,
+			ProviderTenant: s.ProviderTenant,  // Pass provider tenant from context
 		}
 		log.Infof("Created GraphAPI instance with User ID: %d", g.UserId)
 		return g.GetDialer()

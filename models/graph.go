@@ -53,9 +53,9 @@ type GraphAPI struct {
 	ModifiedDate  time.Time `json:"modified_date"`
 	InterfaceType string    `json:"interface_type" gorm:"column:interface_type"`
 	// Graph API credentials - populated from app_registration and provider_tenant
-	ClientID          string    `json:"client_id,omitempty" gorm:"-"`
-	ClientSecret      string    `json:"client_secret,omitempty" gorm:"-"`
-	ProviderTenantID  string    `json:"provider_tenant_id,omitempty" gorm:"-"`
+	ClientID          string        `json:"client_id,omitempty" gorm:"-"`
+	ClientSecret      string        `json:"client_secret,omitempty" gorm:"-"`
+	ProviderTenant    *ProviderTenant `json:"-" gorm:"-"` // Provider tenant from context
 }
 
 // TableName specifies the database tablename for Gorm to use
@@ -79,27 +79,9 @@ func (g *GraphAPI) Validate() error {
 		return errors.New("client_secret not specified")
 	}
 
-	// If provider tenant ID is not specified, try to get it from the user's tenant
-	if g.ProviderTenantID == "" {
-		log.Infof("Provider tenant ID not specified, looking up from user %d", g.UserId)
-		// Get the user to find their tenant
-		user, err := GetUser(g.UserId)
-		if err != nil {
-			log.Errorf("Failed to get user %d: %v", g.UserId, err)
-			return fmt.Errorf("failed to get user: %v", err)
-		}
-		log.Infof("Found user %d with tenant ID: %s", g.UserId, user.TenantID)
-
-		// Get the Microsoft provider tenant for this user's tenant
-		providerTenant, err := GetProviderTenantByType(user.TenantID, ProviderTypeAzure)
-		if err != nil {
-			log.Errorf("Failed to get provider tenant for tenant %s: %v", user.TenantID, err)
-			return fmt.Errorf("failed to get provider tenant: %v", err)
-		}
-		log.Infof("Found provider tenant: %s", providerTenant.ProviderTenantID)
-
-		// Set the provider tenant ID
-		g.ProviderTenantID = providerTenant.ProviderTenantID
+	// Require provider tenant from context
+	if g.ProviderTenant == nil {
+		return errors.New("provider tenant context is required")
 	}
 
 	// Validate the from address
@@ -107,9 +89,9 @@ func (g *GraphAPI) Validate() error {
 		return fmt.Errorf("invalid from_address: %v", err)
 	}
 
-	log.Infof("Getting OAuth token for user %d and provider tenant %s", g.UserId, g.ProviderTenantID)
+	log.Infof("Getting OAuth token for user %d and provider tenant %s", g.UserId, g.ProviderTenant.ProviderTenantID)
 	// Get the OAuth token to validate we have access
-	token, err := GetOAuthTokenByUserAndProviderTenant(g.UserId, g.ProviderTenantID)
+	token, err := GetOAuthTokenByUserAndProviderTenant(g.UserId, g.ProviderTenant.ProviderTenantID)
 	if err != nil {
 		log.Errorf("Failed to get OAuth token for user %d: %v", g.UserId, err)
 		return fmt.Errorf("failed to get OAuth token: %v", err)
@@ -132,7 +114,7 @@ func (g *GraphAPI) GetDialer() (mailer.Dialer, error) {
 	d := &GraphAPIDialer{
 		clientID:          g.ClientID,
 		clientSecret:      g.ClientSecret,
-		providerTenantID:  g.ProviderTenantID,
+		providerTenantID:  g.ProviderTenant.ProviderTenantID,
 		fromAddress:       g.FromAddress,
 		userID:            g.UserId,
 	}
@@ -166,12 +148,15 @@ func (d *GraphAPIDialer) Dial() (mailer.Sender, error) {
 func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 	log.Infof("Sending email via Graph API - From: %s, User ID: %d", from, s.userID)
 
-	// Get a new access token using the authorization code
-	token, _, err := getNewAccessToken(s.clientID, s.clientSecret, s.providerTenantID, s.userID)
+	// Get the existing OAuth token for this user and provider tenant
+	token, err := GetOAuthTokenByUserAndProviderTenant(s.userID, s.providerTenantID)
 	if err != nil {
-		log.Errorf("Failed to get access token for user %d: %v", s.userID, err)
+		log.Errorf("Failed to get existing OAuth token for user %d: %v", s.userID, err)
 		return fmt.Errorf("error getting token for user %d: %v", s.userID, err)
 	}
+
+	// Use the access token from the stored token
+	accessToken := token.AccessTokenEncrypted
 
 	var buf bytes.Buffer
 	if _, err := msg.WriteTo(&buf); err != nil {
@@ -257,7 +242,7 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 		return fmt.Errorf("error creating request: %v", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -266,8 +251,30 @@ func (s *GraphAPISender) Send(from string, to []string, msg io.WriterTo) error {
 	}
 	defer resp.Body.Close()
 
+	// If we get a 401 Unauthorized, the token might be expired. Try to refresh and retry once.
 	if resp.StatusCode == http.StatusUnauthorized {
-		return errors.New("unauthorized: token invalid")
+		log.Infof("Got 401 Unauthorized, attempting to refresh token for user %d", s.userID)
+		
+		// Get a new token
+		newAccessToken, _, err := getNewAccessToken(s.clientID, s.clientSecret, s.providerTenantID, s.userID)
+		if err != nil {
+			return fmt.Errorf("error refreshing token: %v", err)
+		}
+
+		// Retry the request with the new token
+		req, err = http.NewRequest("POST", sendMailURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return fmt.Errorf("error creating request: %v", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+newAccessToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err = s.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("error sending request with refreshed token: %v", err)
+		}
+		defer resp.Body.Close()
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests {

@@ -52,6 +52,8 @@ func init() {
 	gob.Register(&models.User{})
 	gob.Register(&models.Flash{})
 	gob.Register(&oauth2.Token{})
+	gob.Register(&models.Tenant{})
+	gob.Register(&models.ProviderTenant{})
 	Store.Options.HttpOnly = true
 	// This sets the maxAge to 5 days for all cookies
 	Store.MaxAge(86400 * 5)
@@ -65,7 +67,7 @@ var Store = sessions.NewCookieStore(
 	[]byte(securecookie.GenerateRandomKey(32)))
 
 // GetContext wraps each request in a function which fills in the context for a given request.
-// This includes setting the User and Session keys and values as necessary for use in later functions.
+// This includes setting the User, Session, Tenant, and ProviderTenants keys and values as necessary for use in later functions.
 func GetContext(handler http.Handler) http.HandlerFunc {
 	// Set the context here
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -85,9 +87,26 @@ func GetContext(handler http.Handler) http.HandlerFunc {
 			u, err := models.GetUser(id.(int64))
 			if err != nil {
 				r = ctx.Set(r, "user", nil)
+				r = ctx.Set(r, "tenant", nil)
+				r = ctx.Set(r, "provider_tenants", nil)
 				log.Error(err)
 			} else {
 				r = ctx.Set(r, "user", u)
+				
+				// Set tenant in context if it exists
+				if u.Tenant != nil {
+					r = ctx.Set(r, "tenant", u.Tenant)
+					log.Debugf("Set tenant in context - ID: %s, Name: %s", u.Tenant.ID, u.Tenant.Name)
+				}
+
+				// Set provider tenants in context if they exist
+				if len(u.ProviderTenants) > 0 {
+					r = ctx.Set(r, "provider_tenants", u.ProviderTenants)
+					for _, pt := range u.ProviderTenants {
+						log.Debugf("Provider tenant in context - ID: %s, Type: %s", pt.ID, pt.ProviderType)
+					}
+				}
+
 				// Log individual user fields
 				log.Debugf("User details - ID: %d", u.Id)
 				log.Debugf("User details - Username: %s", u.Username)
@@ -109,6 +128,8 @@ func GetContext(handler http.Handler) http.HandlerFunc {
 			}
 		} else {
 			r = ctx.Set(r, "user", nil)
+			r = ctx.Set(r, "tenant", nil)
+			r = ctx.Set(r, "provider_tenants", nil)
 			log.Debug("No user ID in session")
 		}
 		handler.ServeHTTP(w, r)
@@ -165,6 +186,21 @@ func RequireAPIKey(handler http.Handler) http.Handler {
 		r = ctx.Set(r, "user", u)
 		r = ctx.Set(r, "user_id", u.Id)
 		r = ctx.Set(r, "api_key", ak)
+
+		// Set tenant in context if it exists
+		if u.Tenant != nil {
+			r = ctx.Set(r, "tenant", u.Tenant)
+			log.Debugf("Set tenant in context for API request - ID: %s, Name: %s", u.Tenant.ID, u.Tenant.Name)
+		}
+
+		// Set provider tenants in context if they exist
+		if len(u.ProviderTenants) > 0 {
+			r = ctx.Set(r, "provider_tenants", u.ProviderTenants)
+			for _, pt := range u.ProviderTenants {
+				log.Debugf("Provider tenant in context for API request - ID: %s, Type: %s", pt.ID, pt.ProviderType)
+			}
+		}
+
 		handler.ServeHTTP(w, r)
 	})
 }
